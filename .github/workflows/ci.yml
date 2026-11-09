@@ -1,0 +1,93 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "client/**"
+      - "packages/server/**"
+      - "templates/**"
+      - "scripts/install-server.sh"
+      - "package.json"
+      - "package-lock.json"
+      - ".npmrc"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    paths:
+      - "client/**"
+      - "packages/server/**"
+      - "templates/**"
+      - "scripts/install-server.sh"
+      - "package.json"
+      - "package-lock.json"
+      - ".npmrc"
+      - ".github/workflows/ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  client:
+    name: client (node ${{ matrix.node }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: ["20", "24"]
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # The repo root is an npm workspace; install and test the client on its own.
+      - run: npm ci --workspaces=false
+      - name: Embedded assets are up to date
+        run: node scripts/embed-assets.mjs --check
+      - run: node --test test/*.test.mjs
+
+  client-binary:
+    name: client binary (linux-x64)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.3"
+      - run: npm ci --workspaces=false
+      - run: node scripts/build-bin.mjs linux-x64
+      - run: ./dist/memmem-linux-x64 --version
+      - name: Test suite against the compiled binary
+        run: MEMMEM_TEST_BIN=dist/memmem-linux-x64 node --test test/*.test.mjs
+
+  server:
+    name: server (node 24)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24" # >= 24.22, Letta Code's minimum
+      # Whole workspace. The root .npmrc sets legacy-peer-deps, so Letta Code
+      # (a peer of the Agent SDK) is not installed: the unit tests fake every
+      # letta call, and the integration test (MEMMEM_IT=1) is not run here.
+      - run: npm ci
+      - run: npm test
+        working-directory: packages/server
+      - name: Release tarball packs and installs
+        working-directory: packages/server
+        run: |
+          npm run pack:release -- "$RUNNER_TEMP/pack"
+          npm i -g --prefix "$RUNNER_TEMP/prefix" --no-audit --no-fund "$RUNNER_TEMP"/pack/memmem-server-*.tgz
+          "$RUNNER_TEMP/prefix/bin/memmem-server" version
+      - name: install-server.sh lint
+        run: sh -n scripts/install-server.sh && shellcheck scripts/install-server.sh

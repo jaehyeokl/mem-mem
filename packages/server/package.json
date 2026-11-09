@@ -1,0 +1,65 @@
+{
+  "name": "memmem-server",
+  "version": "0.1.0",
+  "description": "mem-mem server: runs a Letta Code App Server and the ingest worker that turns team session transcripts into shared, git-backed project memory",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jaehyeokl/mem-mem.git",
+    "directory": "packages/server"
+  },
+  "homepage": "https://github.com/jaehyeokl/mem-mem#readme",
+  "bugs": {
+    "url": "https://github.com/jaehyeokl/mem-mem/issues"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "memmem-server": "bin/memmem-server.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "!dist/**/*.map",
+    "templates",
+    "config",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=24.22"
+  },
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist templates",
+    "prepack": "npm run build && node scripts/copy-templates.mjs",
+    "postpack": "rm -rf templates",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "test:integration": "npm run build && node --test --test-timeout=900000 test/integration/*.test.mjs",
+    "pack:release": "node scripts/pack.mjs"
+  },
+  "dependencies": {
+    "@letta-ai/letta-agent-sdk": "0.8.70",
+    "ws": "^8.22.1"
+  },
+  "bundleDependencies": [
+    "@letta-ai/letta-agent-sdk",
+    "ws"
+  ],
+  "peerDependencies": {
+    "@letta-ai/letta-code": "^0.34.41"
+  },
+  "peerDependenciesMeta": {
+    "@letta-ai/letta-code": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/ws": "^8.18.1",
+    "typescript": "~5.9.3"
+  }
+}

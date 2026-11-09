@@ -1,0 +1,29 @@
+# Dependencies and build output
+node_modules/
+dist/
+*.tsbuildinfo
+# Release workflow output (npm run pack:release -- out, .github/workflows/release.yml)
+out/
+
+# Copied from templates/ by `npm pack` (prepack) and removed again by postpack
+packages/server/templates/
+*.tgz
+
+# Logs and editor files
+*.log
+.DS_Store
+.idea/
+.vscode/
+
+# Never commit Letta state or credentials
+.letta/
+auth.json
+*.token
+.env
+.env.*
+
+# Local mem-mem client state when this repo is itself a mem-mem project
+.memmem/
+
+# Per-user Claude Code settings
+.claude/settings.local.json

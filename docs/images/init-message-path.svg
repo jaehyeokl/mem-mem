@@ -1,0 +1,16 @@
+<svg width="680" height="420" viewBox="0 0 680 420" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, 'Segoe UI', Roboto, 'Noto Sans KR', sans-serif" font-size="12">
+  <title>How a memmem init request travels</title>
+  <defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#5F5E5A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+  <rect width="680" height="420" fill="#ffffff"/>
+  <rect x="30" y="30" width="180" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/><text x="120" y="52" text-anchor="middle" font-size="14" font-weight="500" fill="#085041">Teammate's machine</text><text x="120" y="70" text-anchor="middle" fill="#0F6E56">/memmem-init → memmem CLI</text>
+  <rect x="250" y="30" width="180" height="56" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/><text x="340" y="52" text-anchor="middle" font-size="14" font-weight="500" fill="#444441">transcripts repo (GitHub)</text><text x="340" y="70" text-anchor="middle" fill="#5F5E5A">bootstrap/ · ingest/</text>
+  <rect x="470" y="30" width="180" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/><text x="560" y="52" text-anchor="middle" font-size="14" font-weight="500" fill="#085041">server worker + Letta</text><text x="560" y="70" text-anchor="middle" fill="#0F6E56">polls the repo every minute</text>
+  <g stroke="#B4B2A9" stroke-width="0.5" stroke-dasharray="3 3"><line x1="120" y1="86" x2="120" y2="400"/><line x1="340" y1="86" x2="340" y2="400"/><line x1="560" y1="86" x2="560" y2="400"/></g>
+  <text x="230" y="116" text-anchor="middle" fill="#5F5E5A">① answers + git summary + sessions pushed</text><line x1="124" y1="126" x2="336" y2="126" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)"/>
+  <text x="450" y="156" text-anchor="middle" fill="#5F5E5A">② request.json found, classified</text><line x1="344" y1="166" x2="556" y2="166" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)"/>
+  <rect x="480" y="182" width="160" height="56" rx="8" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/><text x="560" y="204" text-anchor="middle" font-size="14" font-weight="500" fill="#3C3489">Letta /init runs</text><text x="560" y="222" text-anchor="middle" fill="#534AB7">code clone · sessions · answers</text>
+  <text x="450" y="266" text-anchor="middle" fill="#5F5E5A">③ status.json and log pushed</text><line x1="556" y1="276" x2="344" y2="276" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)"/>
+  <text x="230" y="306" text-anchor="middle" fill="#5F5E5A">④ memmem status pulls and shows it</text><line x1="336" y1="316" x2="124" y2="316" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)"/>
+  <text x="230" y="346" text-anchor="middle" fill="#5F5E5A">⑤ (if a question is pending) --answer pushed</text><line x1="124" y1="356" x2="336" y2="356" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)"/>
+  <text x="450" y="386" text-anchor="middle" fill="#5F5E5A">⑥ injected as a turn into the same init conversation</text><line x1="344" y1="396" x2="556" y2="396" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)"/>
+</svg>

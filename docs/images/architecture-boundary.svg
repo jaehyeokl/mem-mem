@@ -1,0 +1,28 @@
+<svg width="680" height="400" viewBox="0 0 680 400" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, 'Segoe UI', Roboto, 'Noto Sans KR', sans-serif" font-size="14">
+  <title>mem-mem components and the Letta boundary</title>
+  <defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#5F5E5A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+  <rect width="680" height="400" fill="#ffffff"/>
+  <rect x="40" y="24" width="12" height="12" rx="2" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/><text x="58" y="34" font-size="12" fill="#5F5E5A">built by mem-mem</text>
+  <rect x="200" y="24" width="12" height="12" rx="2" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/><text x="218" y="34" font-size="12" fill="#5F5E5A">provided by Letta Code</text>
+  <rect x="380" y="24" width="12" height="12" rx="2" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/><text x="398" y="34" font-size="12" fill="#5F5E5A">external tools and storage</text>
+  <rect x="20" y="60" width="200" height="320" rx="12" fill="none" stroke="#B4B2A9" stroke-width="0.5" stroke-dasharray="4 3"/><text x="34" y="84" font-weight="500" fill="#2C2C2A">Each teammate's machine</text>
+  <rect x="36" y="96" width="168" height="44" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/><text x="120" y="122" text-anchor="middle" font-weight="500" fill="#444441">Claude Code · Codex CLI</text>
+  <line x1="120" y1="140" x2="120" y2="168" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)" marker-start="url(#a)"/>
+  <rect x="36" y="170" width="168" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/><text x="120" y="192" text-anchor="middle" font-weight="500" fill="#085041">memmem</text><text x="120" y="210" text-anchor="middle" font-size="12" fill="#0F6E56">hooks · sync · init · remember</text>
+  <line x1="120" y1="226" x2="120" y2="254" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)"/>
+  <rect x="36" y="256" width="168" height="56" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/><text x="120" y="278" text-anchor="middle" font-weight="500" fill="#444441">memory clone</text><text x="120" y="296" text-anchor="middle" font-size="12" fill="#5F5E5A">&lt;project&gt;/.memmem/memory</text>
+  <rect x="245" y="60" width="190" height="320" rx="12" fill="none" stroke="#B4B2A9" stroke-width="0.5" stroke-dasharray="4 3"/><text x="259" y="84" font-weight="500" fill="#2C2C2A">GitHub (2 repos per project)</text>
+  <rect x="258" y="96" width="164" height="56" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/><text x="340" y="118" text-anchor="middle" font-weight="500" fill="#444441">mem-&lt;p&gt;</text><text x="340" y="136" text-anchor="middle" font-size="12" fill="#5F5E5A">memory (MemFS mirror)</text>
+  <rect x="258" y="240" width="164" height="56" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/><text x="340" y="262" text-anchor="middle" font-weight="500" fill="#444441">mem-&lt;p&gt;-transcripts</text><text x="340" y="280" text-anchor="middle" font-size="12" fill="#5F5E5A">transcripts · requests · log</text>
+  <path d="M258 124 L231 124 L231 186 L206 186" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)"/>
+  <path d="M204 210 L231 210 L231 268 L256 268" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)"/>
+  <rect x="460" y="60" width="200" height="320" rx="12" fill="none" stroke="#B4B2A9" stroke-width="0.5" stroke-dasharray="4 3"/><text x="474" y="84" font-weight="500" fill="#2C2C2A">Your server (one container)</text>
+  <rect x="476" y="96" width="168" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/><text x="560" y="118" text-anchor="middle" font-weight="500" fill="#085041">mem-mem worker</text><text x="560" y="136" text-anchor="middle" font-size="12" fill="#0F6E56">ingest · reflect · init · push</text>
+  <path d="M476 124 L424 124" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)"/>
+  <path d="M422 268 L449 268 L449 164 L540 164 L540 154" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)"/>
+  <line x1="600" y1="152" x2="600" y2="176" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)" marker-start="url(#a)"/>
+  <rect x="476" y="176" width="168" height="184" rx="12" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/><text x="560" y="200" text-anchor="middle" font-weight="500" fill="#3C3489">Letta App Server</text>
+  <rect x="486" y="212" width="148" height="56" rx="8" fill="#ffffff" stroke="#AFA9EC" stroke-width="0.5"/><text x="560" y="234" text-anchor="middle" font-weight="500" fill="#3C3489">agent + MemFS</text><text x="560" y="252" text-anchor="middle" font-size="12" fill="#534AB7">one per project, a git repo</text>
+  <line x1="560" y1="284" x2="560" y2="270" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#a)"/>
+  <rect x="486" y="284" width="148" height="56" rx="8" fill="#ffffff" stroke="#AFA9EC" stroke-width="0.5"/><text x="560" y="306" text-anchor="middle" font-weight="500" fill="#3C3489">reflection · /init</text><text x="560" y="324" text-anchor="middle" font-size="12" fill="#534AB7">edits a worktree, merges</text>
+</svg>

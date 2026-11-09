@@ -1,0 +1,26 @@
+{
+  "name": "mem-mem",
+  "version": "0.1.0",
+  "private": true,
+  "description": "mem-mem monorepo: the memmem client and the memmem-server package",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jaehyeokl/mem-mem.git"
+  },
+  "homepage": "https://github.com/jaehyeokl/mem-mem#readme",
+  "bugs": {
+    "url": "https://github.com/jaehyeokl/mem-mem/issues"
+  },
+  "workspaces": [
+    "client",
+    "packages/server"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace memmem-server",
+    "test": "npm test --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=24.22"
+  }
+}

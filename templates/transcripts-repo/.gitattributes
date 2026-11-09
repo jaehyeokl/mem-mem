@@ -1,0 +1,4 @@
+# Normalized trajectories and logs are text; keep diffs readable and line endings stable.
+*.json  text eol=lf diff
+*.jsonl text eol=lf diff
+*.md    text eol=lf

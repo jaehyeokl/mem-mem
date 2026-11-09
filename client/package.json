@@ -1,0 +1,42 @@
+{
+  "name": "mem-mem-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "mem-mem client adapter: Claude Code / Codex hooks that read team memory and ship normalized transcripts",
+  "type": "module",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jaehyeokl/mem-mem.git",
+    "directory": "client"
+  },
+  "homepage": "https://github.com/jaehyeokl/mem-mem#readme",
+  "bugs": {
+    "url": "https://github.com/jaehyeokl/mem-mem/issues"
+  },
+  "bin": {
+    "memmem": "bin/memmem.mjs"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "claude",
+    "codex",
+    "agents",
+    "scripts",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "embed": "node scripts/embed-assets.mjs",
+    "pretest": "node scripts/embed-assets.mjs",
+    "test": "node --test test/*.test.mjs",
+    "build:bin": "node scripts/build-bin.mjs",
+    "build:bin:host": "node scripts/build-bin.mjs --host"
+  },
+  "dependencies": {
+    "@letta-ai/trajectory": "0.4.3"
+  }
+}

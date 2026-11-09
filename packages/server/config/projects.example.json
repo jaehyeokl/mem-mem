@@ -1,0 +1,21 @@
+{
+  "settings": {
+    "stepCount": 3,
+    "dailyReflectHour": 23,
+    "ingestMaxChars": 40000
+  },
+  "defaults": {
+    "model": "openai-codex/gpt-5.6-sol",
+    "reflectionModel": "openai-codex/gpt-5.6-sol"
+  },
+  "projects": [
+    {
+      "project": "demo-shop",
+      "agentId": "agent-local-00000000-0000-0000-0000-000000000000",
+      "memoryRepo": "https://github.com/example-org/mem-demo-shop.git",
+      "transcriptsRepo": "https://github.com/example-org/mem-demo-shop-transcripts.git",
+      "model": "openai-codex/gpt-5.6-sol",
+      "createdAt": "2026-11-06T00:00:00Z"
+    }
+  ]
+}
