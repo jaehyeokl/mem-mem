@@ -92,7 +92,7 @@ jobs:
         working-directory: packages/server
       - name: Tarball installs and runs
         run: |
-          npm i -g --prefix "$RUNNER_TEMP/prefix" --no-audit --no-fund out/memmem-server-*.tgz
+          npm i -g --prefix "$RUNNER_TEMP/prefix" --no-audit --no-fund ./out/memmem-server-*.tgz
           [ "$("$RUNNER_TEMP/prefix/bin/memmem-server" version)" = "${GITHUB_REF_NAME#v}" ]
       - uses: actions/upload-artifact@v4
         with:
