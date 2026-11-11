@@ -322,7 +322,7 @@ test("init: a code repo that cannot be cloned fails cleanly, is marked processed
   assert.match(st.error, /cannot clone the code repo .*missing\.git/);
   assert.deepEqual(st.requestedBy, ["minji"]);
   assert.deepEqual(st.commits, []);
-  assert.equal(st.serverVersion, "0.1.0");
+  assert.equal(st.serverVersion, "0.1.1");
   const state = await loadState(t.cfg.stateDir, "demo-shop");
   assert.equal(state.initRequests["bootstrap/minji/request.json"].outcome, "failed");
   assert.equal(state.init.state, "failed");

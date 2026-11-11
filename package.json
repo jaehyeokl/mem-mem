@@ -1,6 +1,6 @@
 {
   "name": "mem-mem",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "mem-mem monorepo: the memmem client and the memmem-server package",
   "license": "Apache-2.0",
