@@ -529,7 +529,10 @@ test("mainCheckout / findConfig: linked worktrees use the main checkout's .memme
   const subSrc = path.join(root, "subsrc");
   sh("git", ["init", "--quiet", "-b", "main", subSrc], { env });
   sh("git", ["commit", "--quiet", "--allow-empty", "-m", "s"], { cwd: subSrc, env });
-  sh("git", ["-c", "protocol.file.allow=always", "submodule", "--quiet", "add", subSrc, "vendor/sub"], { cwd: main, env });
+  // `git submodule` is a shell script that needs sed, basename, uname: build this fixture with the system PATH
+  // appended (the strict PATH holds only git's and node's folders, which on macOS is Homebrew's, without them).
+  // Everything asserted below still runs under the strict env.
+  sh("git", ["-c", "protocol.file.allow=always", "submodule", "--quiet", "add", subSrc, "vendor/sub"], { cwd: main, env: { ...env, PATH: [env.PATH, process.env.PATH, "/usr/bin", "/bin"].filter(Boolean).join(path.delimiter) } });
   assert.ok(fs.statSync(path.join(main, "vendor", "sub", ".git")).isFile());
   assert.equal(mainCheckout(path.join(main, "vendor", "sub")), null);
   assert.equal(findConfig(path.join(main, "vendor", "sub")), null);
