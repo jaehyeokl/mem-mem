@@ -88,11 +88,37 @@ export function safeName(s, fallback = "unknown") {
 }
 
 /**
- * Walk up from `start` to the nearest folder with `.memmem/config.json`, stopping
- * at the first folder that contains `.git` (file or directory: a repository or
- * worktree root) after checking it, so a nested unrelated repository never picks
- * up the enclosing project's config. Returns { path, dir, config }, or null.
- * Throws on invalid JSON (callers that must stay silent catch it).
+ * The main checkout of a linked git worktree rooted at `dir` (whose `.git` is a
+ * file), read from the files git writes, without running git (hook hot path):
+ * `.git` -> `gitdir: <p>`, `<p>/commondir` -> the common dir, whose parent is
+ * the main checkout when it is named `.git`. Null for a main checkout, a
+ * submodule (no commondir), a worktree of a bare repository, or any error.
+ */
+export function mainCheckout(dir) {
+  try {
+    const dotgit = path.join(dir, ".git");
+    if (!fs.statSync(dotgit).isFile()) return null;
+    const m = fs.readFileSync(dotgit, "utf8").match(/^gitdir:\s*(.+?)\s*$/m);
+    if (!m) return null;
+    const gitdir = path.resolve(dir, m[1]);
+    const commondir = path.join(gitdir, "commondir");
+    if (!fs.existsSync(commondir)) return null;
+    const common = path.resolve(gitdir, fs.readFileSync(commondir, "utf8").trim());
+    if (path.basename(common) !== ".git") return null;
+    const main = path.dirname(common);
+    return main === path.resolve(dir) ? null : main;
+  } catch { return null; }
+}
+
+/**
+ * Walk up from `start` to the nearest folder with `.memmem/config.json`, up to
+ * the first folder that contains `.git` (a repository or worktree root), which
+ * is checked and ends the walk, so a nested unrelated repository never picks up
+ * the enclosing project's config. A linked git worktree without its own config
+ * uses its main checkout's `.memmem/` (one opt-in per repository): then `dir`
+ * is the main checkout and `checkout` the worktree. Returns { path, dir,
+ * config, checkout? }, or null. Throws on invalid JSON (callers that must stay
+ * silent catch it).
  */
 export function findConfig(start) {
   let dir = path.resolve(start || process.cwd());
@@ -102,7 +128,12 @@ export function findConfig(start) {
       const config = JSON.parse(fs.readFileSync(p, "utf8"));
       return { path: p, dir, config };
     }
-    if (fs.existsSync(path.join(dir, ".git"))) return null;
+    if (fs.existsSync(path.join(dir, ".git"))) {
+      const main = mainCheckout(dir);
+      const mp = main && path.join(main, CONFIG_FILE);
+      if (!mp || !fs.existsSync(mp)) return null;
+      return { path: mp, dir: main, config: JSON.parse(fs.readFileSync(mp, "utf8")), checkout: dir };
+    }
     const parent = path.dirname(dir);
     if (parent === dir) return null;
     dir = parent;
@@ -114,18 +145,31 @@ export function modeOf(local) {
   return local?.mode === "user" ? "user" : "shared";
 }
 
+/**
+ * The local.json to read for `projectDir`: its own, else (a linked worktree of a
+ * shared-mode project, where config.json is committed but local.json is not)
+ * its main checkout's; null when neither exists. Writes always go to `projectDir`.
+ */
+function localFileOf(projectDir) {
+  const own = path.join(projectDir, LOCAL_FILE);
+  if (fs.existsSync(own)) return own;
+  const main = mainCheckout(projectDir);
+  const other = main && path.join(main, LOCAL_FILE);
+  return other && fs.existsSync(other) ? other : null;
+}
+
 /** Per-user, git-ignored `<project>/.memmem/local.json` ({member}); {} when absent or invalid. */
 export function readLocal(projectDir) {
   try {
-    const v = JSON.parse(fs.readFileSync(path.join(projectDir, LOCAL_FILE), "utf8"));
+    const v = JSON.parse(fs.readFileSync(localFileOf(projectDir), "utf8"));
     return v && typeof v === "object" ? v : {};
   } catch { return {}; }
 }
 
 /** `<project>/.memmem/local.json` as an object ({} when absent); throws when it is unreadable or not a JSON object. */
 export function readLocalStrict(projectDir) {
-  const file = path.join(projectDir, LOCAL_FILE);
-  if (!fs.existsSync(file)) return {};
+  const file = localFileOf(projectDir);
+  if (!file) return {};
   const v = JSON.parse(fs.readFileSync(file, "utf8"));
   if (!v || typeof v !== "object" || Array.isArray(v)) throw new Error(`${file}: not a JSON object`);
   return v;
@@ -339,7 +383,10 @@ export function ghUser({ runner = defaultRunner, env = process.env, platform = p
   }
 }
 
-/** Merge `patch` into `<project>/.memmem/local.json` (per user, git-ignored). Returns true when the file changed. */
+/**
+ * Merge `patch` into `<project>/.memmem/local.json` (per user, git-ignored). Returns true when the file changed.
+ * In a linked worktree without its own file, the main checkout's content is the base (readLocal).
+ */
 export function writeLocal(projectDir, patch) {
   const cur = readLocal(projectDir);
   const next = { ...cur, ...patch };

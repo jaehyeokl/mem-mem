@@ -16,7 +16,7 @@ import { createPrompter } from "./prompt.mjs";
 import { selfCommand } from "./runtime.mjs";
 import { ensureExcluded, installUser, writeGuide } from "./user.mjs";
 import {
-  commitAndPush, CONFIG_DIR, CONFIG_FILE, defaultRunner, ensureClone, ghUser, git, githubIdOf, GUIDE_FILE, isGithubLogin, LANGUAGES, LAYOUT_VERSION, LOCAL_FILE,
+  commitAndPush, CONFIG_DIR, CONFIG_FILE, defaultRunner, ensureClone, findConfig, ghUser, git, githubIdOf, GUIDE_FILE, isGithubLogin, LANGUAGES, LAYOUT_VERSION, LOCAL_FILE,
   languageOf, modeOf, preparePull, projectPaths, readLocal, readProjectInfo, repoUrl, resolveOnPath, safeName, serverLanguageOf, withLock, writeLocal,
 } from "./util.mjs";
 
@@ -321,6 +321,12 @@ export async function runSetup(args, { out = process.stdout, err = process.stder
   const dir = path.resolve(args.dir || process.cwd());
   let existing;
   try { existing = readExisting(dir); } catch (e) { warn(`memmem setup: ${CONFIG_FILE} is not valid JSON: ${e.message}`); return 1; }
+  // A linked worktree of a user-mode project already uses its main checkout's .memmem/: nothing to set up here.
+  if (!existing) {
+    let f = null;
+    try { f = findConfig(dir); } catch { /* invalid config elsewhere: not this case */ }
+    if (f?.checkout && modeOf(readLocal(f.dir)) === "user") { say(`this worktree already uses the memmem setup of its main checkout ${f.dir}; nothing to do here`); return 0; }
+  }
   if (args.local && args.shared) { warn("memmem setup: --local and --shared cannot be combined"); return 2; }
   if (args.local) warn("memmem setup: --local is deprecated; user mode (the default) does the same: per-computer hooks, nothing committed in the project.");
   const mode = setupMode(args, existing, readLocal(dir));

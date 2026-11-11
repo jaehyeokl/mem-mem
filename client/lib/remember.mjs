@@ -3,11 +3,13 @@
 // read-only), the redacted note goes to <project>/.memmem/outbox/ instead;
 // `sync` (run by the hooks, outside the sandbox) and the next successful
 // `remember` move outbox notes into inbox/<member>/ and push them.
+// In a linked git worktree the outbox is the worktree's own (the folder a
+// sandbox lets the session write); both it and the main checkout's are flushed.
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { redactString } from "./secrets.mjs";
-import { commitAndPush, ensureClone, findConfig, log, OUTBOX_DIR, preparePull, projectPaths, repoUrl, withLock } from "./util.mjs";
+import { commitAndPush, CONFIG_DIR, ensureClone, findConfig, log, OUTBOX_DIR, preparePull, projectPaths, repoUrl, withLock } from "./util.mjs";
 
 /**
  * ASCII-only slug (non-ASCII file names break across macOS NFD / Linux NFC
@@ -42,19 +44,28 @@ function freeName(dir, base) {
   return name;
 }
 
+/** Folders whose `.memmem/outbox/` belongs to this project: the worktree the command runs in (if any), then the main checkout. */
+export function outboxDirs(found) {
+  return [...new Set([found.checkout, found.dir].filter(Boolean))];
+}
+
+/** Notes waiting in `<dir>/.memmem/outbox/`, sorted. */
+export function outboxNotes(dir) {
+  try { return fs.readdirSync(path.join(dir, OUTBOX_DIR)).filter((n) => n.endsWith(".md")).sort(); } catch { return []; }
+}
+
 /**
- * Copy outbox notes into the transcripts clone's inbox/<member>/ (call inside
- * the lock). A note whose exact text is already there (copied before, but the
- * outbox file was not removed) is not copied again. Returns { rels, sources }:
- * the repo paths to commit and the outbox files to delete once committed.
+ * Copy outbox notes of `projectDirs` into the transcripts clone's
+ * inbox/<member>/ (call inside the lock). A note whose exact text is already
+ * there (copied before, but the outbox file was not removed) is not copied
+ * again. Returns { rels, sources }: the repo paths to commit and the outbox
+ * files to delete once committed.
  */
-export function moveOutbox(projectDir, paths) {
-  const dir = path.join(projectDir, OUTBOX_DIR);
-  let names = [];
-  try { names = fs.readdirSync(dir).filter((n) => n.endsWith(".md")).sort(); } catch { return { rels: [], sources: [] }; }
-  const inbox = path.join(paths.transcripts, "inbox", paths.member);
+export function moveOutbox(projectDirs, paths) {
   const rels = [], sources = [];
-  for (const n of names) {
+  const inbox = path.join(paths.transcripts, "inbox", paths.member);
+  for (const projectDir of [].concat(projectDirs)) for (const n of outboxNotes(projectDir)) {
+    const dir = path.join(projectDir, OUTBOX_DIR);
     const src = path.join(dir, n);
     const text = fs.readFileSync(src, "utf8");
     fs.mkdirSync(inbox, { recursive: true });
@@ -68,28 +79,35 @@ export function moveOutbox(projectDir, paths) {
   return { rels, sources };
 }
 
-/** Delete outbox files once their notes are committed in the transcripts clone; drop the empty outbox folder. */
-function clearOutbox(projectDir, sources) {
+/**
+ * Delete outbox files once their notes are committed in the transcripts clone;
+ * drop empty outbox folders, and a worktree's then-empty `.memmem/` (rmdir
+ * only; never the main checkout's).
+ */
+function clearOutbox(found, sources) {
   for (const f of sources) fs.rmSync(f, { force: true });
-  try { fs.rmdirSync(path.join(projectDir, OUTBOX_DIR)); } catch { /* not empty or absent */ }
+  for (const d of outboxDirs(found)) {
+    try { fs.rmdirSync(path.join(d, OUTBOX_DIR)); } catch { continue; /* not empty or absent */ }
+    if (d !== found.dir) { try { fs.rmdirSync(path.join(d, CONFIG_DIR)); } catch { /* not empty */ } }
+  }
 }
 
 /**
- * `sync`'s part: upload the outbox notes, if any (no clone, lock, or network
- * otherwise). Returns { moved, ok }.
+ * `sync`'s part: upload the outbox notes of this checkout and the main one, if
+ * any (no clone, lock, or network otherwise). Returns { moved, ok }.
  */
-export function flushOutbox(projectDir, paths, config) {
-  let names = [];
-  try { names = fs.readdirSync(path.join(projectDir, OUTBOX_DIR)).filter((n) => n.endsWith(".md")); } catch { /* none */ }
-  if (!names.length) return { moved: 0, ok: true };
+export function flushOutbox(found, paths) {
+  const dirs = outboxDirs(found);
+  if (!dirs.some((d) => outboxNotes(d).length)) return { moved: 0, ok: true };
+  const config = found.config;
   const cl = ensureClone(repoUrl(config.transcriptsRepo), paths.transcripts);
   if (!cl.ok) { log(paths, "outbox", `clone transcripts repo failed: ${cl.error}`); return { moved: 0, ok: false }; }
   return withLock(paths.lock, () => {
     preparePull(paths.transcripts, paths.member);
-    const { rels, sources } = moveOutbox(projectDir, paths);
+    const { rels, sources } = moveOutbox(dirs, paths);
     if (!rels.length) return { moved: 0, ok: true };
     const res = commitAndPush(paths.transcripts, rels, `remember: ${paths.member}: ${rels.length} queued note(s)`, { member: paths.member });
-    if (res.ok || res.committed) clearOutbox(projectDir, sources);
+    if (res.ok || res.committed) clearOutbox(found, sources);
     log(paths, "outbox", `${rels.length} note(s) committed=${Boolean(res.ok || res.committed)} pushed=${Boolean(res.ok)}${res.ok ? "" : ` error=${res.error}`}`);
     return { moved: res.ok || res.committed ? rels.length : 0, ok: res.ok };
   });
@@ -109,32 +127,35 @@ export function runRemember(args) {
   const body = noteBody({ member: paths.member, project: paths.project, created: now.toISOString(), text: clean });
   const redacted = Object.values(counts).reduce((a, b) => a + b, 0);
   if (!dataWritable(paths)) {
-    const outbox = path.join(found.dir, OUTBOX_DIR);
-    try {
-      fs.mkdirSync(outbox, { recursive: true });
-      const file = path.join(outbox, freeName(outbox, base));
-      fs.writeFileSync(file, body);
-      if (redacted) process.stderr.write(`memmem remember: redacted ${redacted} secret-like value(s)\n`);
-      process.stdout.write(`queued ${file}: the data folder is read-only here (sandbox); it uploads at the next sync\n`);
-      return 0;
-    } catch (e) {
-      process.stderr.write(`memmem remember: the data folder ${paths.root} and ${outbox} are not writable: ${e.message}\n`);
-      return 1;
+    // The checkout the session runs in first (a sandbox lets it write there), then the main checkout.
+    const tried = [];
+    for (const d of outboxDirs(found)) {
+      const outbox = path.join(d, OUTBOX_DIR);
+      try {
+        fs.mkdirSync(outbox, { recursive: true });
+        const file = path.join(outbox, freeName(outbox, base));
+        fs.writeFileSync(file, body);
+        if (redacted) process.stderr.write(`memmem remember: redacted ${redacted} secret-like value(s)\n`);
+        process.stdout.write(`queued ${file}: the data folder is read-only here (sandbox); it uploads at the next sync\n`);
+        return 0;
+      } catch (e) { tried.push(`${outbox}: ${e.message}`); }
     }
+    process.stderr.write(`memmem remember: NOT saved: the data folder ${paths.root} is read-only here and the note could not be queued either (${tried.join("; ")})\n`);
+    return 1;
   }
   const cl = ensureClone(repoUrl(found.config.transcriptsRepo), paths.transcripts);
   if (!cl.ok) { process.stderr.write(`memmem remember: cannot clone transcripts repo: ${cl.error}\n`); return 1; }
   try {
     return withLock(paths.lock, () => {
       preparePull(paths.transcripts, paths.member);
-      const queued = moveOutbox(found.dir, paths);
+      const queued = moveOutbox(outboxDirs(found), paths);
       const dir = path.join(paths.transcripts, "inbox", paths.member);
       fs.mkdirSync(dir, { recursive: true });
       const name = freeName(dir, base);
       fs.writeFileSync(path.join(dir, name), body);
       const rel = path.posix.join("inbox", paths.member, name);
       const res = commitAndPush(paths.transcripts, [rel, ...queued.rels], `remember: ${paths.member}: ${clean.trim().split("\n")[0].slice(0, 60)}`, { member: paths.member });
-      if (res.ok || res.committed) clearOutbox(found.dir, queued.sources);
+      if (res.ok || res.committed) clearOutbox(found, queued.sources);
       log(paths, "remember", `${rel} pushed=${res.ok}${redacted ? ` redactions=${redacted}` : ""}${queued.rels.length ? ` outbox=${queued.rels.length}` : ""}`);
       if (!res.ok) {
         process.stderr.write(`memmem remember: saved locally but push failed (will retry on next sync): ${res.error}\n`);

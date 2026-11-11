@@ -95,7 +95,7 @@ export function runSync(args) {
   const delay = Number(args.delayMs || 0);
   if (delay > 0) sleepSync(delay);
   // Notes `memmem remember` queued in .memmem/outbox/ while the data folder was read-only.
-  try { flushOutbox(found.dir, paths, found.config); } catch (e) { L(`error: outbox: ${e.message}`); }
+  try { flushOutbox(found, paths); } catch (e) { L(`error: outbox: ${e.message}`); }
 
   const file = resolveTranscript(args.transcript, { tool, sessionId: args.session });
   if (!file) { L(`skip: transcript not found (path=${args.transcript || "-"} session=${args.session || "-"})`); return 1; }

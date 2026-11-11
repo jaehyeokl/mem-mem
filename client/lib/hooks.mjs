@@ -23,8 +23,9 @@ export function fallbackShouldSkip(args, { env = process.env, platform = process
 
 /**
  * The activation rule, shared by every hook entry point. A hook does work only
- * when (1) `.memmem/config.json` is found walking up from the hook's cwd (the
- * walk stops at the first folder with `.git`, see findConfig), (2) a member is
+ * when (1) `.memmem/config.json` is found walking up from the hook's cwd to the
+ * first `.git` boundary; a linked git worktree uses its main checkout's
+ * `.memmem/` (see findConfig), (2) a member is
  * recorded (local.json or MEMMEM_MEMBER), and (3) the mode matches: user-level
  * hook commands carry `--user` and act only in a `mode: "user"` checkout;
  * project-level commands act only in the others. Invalid or unreadable

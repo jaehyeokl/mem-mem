@@ -30,6 +30,14 @@ function outboxNotes(dir) {
   try { return fs.readdirSync(path.join(dir, OUTBOX_DIR)).filter((n) => n.endsWith(".md")); } catch { return []; }
 }
 
+/** The repository's linked worktrees (not the main checkout), from `git worktree list --porcelain`. */
+function linkedWorktrees(dir) {
+  const r = git(["worktree", "list", "--porcelain"], { cwd: dir });
+  if (!r.ok) return [];
+  const all = r.stdout.split("\n").filter((l) => l.startsWith("worktree ")).map((l) => path.resolve(l.slice(9)));
+  return all.filter((w) => w !== path.resolve(dir));
+}
+
 /** User mode, project side: .memmem/ (unless the outbox holds notes) and our info/exclude line. */
 function uninstallUserProject(found, args, say) {
   const dir = found.dir;
@@ -39,13 +47,21 @@ function uninstallUserProject(found, args, say) {
     purgeData(paths, say);
     if (!paths.memory.startsWith(path.join(dir, CONFIG_DIR) + path.sep)) { fs.rmSync(paths.memory, { recursive: true, force: true }); say(`removed ${paths.memory}`); }
   } else say("kept the data folder (transcripts clone, logs; use --purge to remove it)");
-  const pending = outboxNotes(dir);
+  // Notes queued in linked worktrees (their own .memmem/outbox/) count too.
+  const worktrees = linkedWorktrees(dir);
+  const pending = [dir, ...worktrees].map((d) => [d, outboxNotes(d).length]).filter(([, n]) => n);
   if (pending.length) {
-    say(`kept ${path.join(dir, CONFIG_DIR)}: ${pending.length} note(s) in ${OUTBOX_DIR} are not uploaded yet (a session end or \`memmem remember\` outside the sandbox uploads them; then run uninstall again)`);
+    const where = pending.map(([d, n]) => `${n} in ${path.join(d, OUTBOX_DIR)}`).join(", ");
+    say(`kept ${path.join(dir, CONFIG_DIR)}: queued note(s) are not uploaded yet (${where}); a session end or \`memmem remember\` outside the sandbox uploads them, then run uninstall again`);
     return 0;
   }
+  if (found.checkout) say(`${found.checkout} is a linked worktree; removing the setup of its main checkout ${dir}`);
   fs.rmSync(path.join(dir, CONFIG_DIR), { recursive: true, force: true });
   say(`removed ${path.join(dir, CONFIG_DIR)}`);
+  for (const w of worktrees) {
+    try { fs.rmdirSync(path.join(w, OUTBOX_DIR)); } catch { /* absent or not empty */ }
+    try { fs.rmdirSync(path.join(w, CONFIG_DIR)); } catch { /* absent or not empty */ }
+  }
   if (local.excluded && removeExcluded(dir)) say(`removed ${CONFIG_DIR}/ from the repository's info/exclude`);
   say("the user-level hooks and skill stay for other projects (`memmem uninstall --user` removes them)");
   return 0;

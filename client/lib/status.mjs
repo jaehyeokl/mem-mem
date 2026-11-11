@@ -252,6 +252,7 @@ export function renderStatus(s) {
     const tools = Object.entries(s.install.user || {}).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`);
     L.push(`mode: user; user-level hooks: ${tools.join(", ") || "none installed (run `memmem install`)"}${s.install.user?.codex ? " (Codex runs them after a one-time approval on its review screen)" : ""}`);
   } else if (s.install) L.push("mode: shared (project-level hooks)");
+  if (s.install?.checkout) L.push(`linked git worktree ${s.install.checkout}: using the main checkout ${s.install.main}`);
   const i = s.ingest;
   L.push(`ingest: ${i.ingested} session file(s) ingested, ${i.skipped} skipped, ${i.waiting} waiting${i.lastIngestAt ? ` (last ${i.lastIngestAt})` : ""}`);
   if (i.lastSkip) L.push(`  last skip: ${i.lastSkip.file}: ${i.lastSkip.error}`);
@@ -317,8 +318,9 @@ export function collectStatus(found) {
   const aliases = memberAliases(paths.transcripts, paths.member);
   const names = [paths.member, ...aliases];
   const mode = modeOf(readLocal(found.dir));
+  const where = found.checkout ? { checkout: found.checkout, main: found.dir } : {};
   return buildStatus({
-    install: mode === "user" ? { mode, user: userInstallSummary(userInstallState()) } : { mode },
+    install: mode === "user" ? { mode, user: userInstallSummary(userInstallState()), ...where } : { mode, ...where },
     project: paths.project,
     member: paths.member,
     aliases,

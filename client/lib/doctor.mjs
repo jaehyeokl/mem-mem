@@ -62,6 +62,7 @@ export function doctorChecks({ cwd = process.cwd(), runner = defaultRunner, env 
   if (!found) { check(list, "config", "fail", `no ${CONFIG_FILE} in ${cwd} or its parents up to the repository root (run \`memmem setup\`)`); return list; }
   const { config, dir } = found;
   check(list, "mode", "ok", mode === "user" ? "user (user-level hooks; the project has only .memmem/)" : "shared (project-level hooks)");
+  if (found.checkout) check(list, "worktree", "info", `${found.checkout} is a linked git worktree; it uses the main checkout ${dir}`);
   const miss = ["project", "memoryRepo", "transcriptsRepo"].filter((k) => typeof config[k] !== "string" || !config[k]);
   if (miss.length) check(list, "config", "fail", `${found.path}: missing ${miss.join(", ")}`);
   else check(list, "config", "ok", found.path);
