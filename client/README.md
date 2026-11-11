@@ -159,7 +159,11 @@ path. Re-running is safe; it only rewrites what changed.
 - Prints the next steps: approve the hooks in Codex once, then `/memmem-init` or `$memmem-init`.
 
 Re-running it, or a plain `memmem setup` in a user-mode checkout, refreshes
-everything and changes nothing that is already current.
+everything and changes nothing that is already current. Linked worktrees need
+no setup of their own: they use the main checkout's `.memmem/` (`memmem setup`
+inside one says so and changes nothing), and `status` / `doctor` there name
+the main checkout. In shared mode a worktree has the committed config, and its
+member comes from the main checkout's `.memmem/local.json` when it has none.
 
 **Shared mode, first member** (`--shared`, or a shared checkout with any of `--project`,
 `--memory-repo`, `--transcripts-repo`, `--language`, `--memory-dir` given):
@@ -375,7 +379,17 @@ exits 0 with `queued <file>: ... it uploads at the next sync`. The hooks'
 `sync` (which runs outside the sandbox) and the next successful `remember`
 move outbox notes into `inbox/<member>/` and push them; a note already copied
 is not copied twice, and an outbox file is deleted only after its note is
-committed.
+committed. In a linked git worktree the note is queued in the worktree's own
+`.memmem/outbox/` (the folder the sandbox lets the session write; git already
+hides it through the shared `info/exclude`), and the worktree's `.memmem/` is
+removed again once the note is uploaded.
+
+The queue needs a writable project folder. In `codex exec` in a folder Codex
+does not trust, the sandbox is read-only for the whole project, so `remember`
+cannot even queue the note: it exits 1 with `NOT saved: ...`, and the model is
+told to say the note was not saved and show it to you. Open the project once in
+the Codex TUI and trust the folder (exec then runs with `workspace-write`), or
+pass `-s workspace-write`, or run `memmem remember` yourself.
 
 ### `memmem uninstall`
 
@@ -386,8 +400,10 @@ memmem uninstall --user
 
 User mode: removes the project's `.memmem/` folder (config, local state,
 memory clone, guide) and the `info/exclude` line setup added; nothing else in
-the project is touched. If `.memmem/outbox/` still holds notes that were never
-uploaded, `.memmem/` is kept and the command says why. The data folder stays
+the project is touched. Run from a linked worktree, it removes the main
+checkout's setup. If `.memmem/outbox/` of the main checkout or of any linked
+worktree still holds notes that were never uploaded, `.memmem/` is kept and the
+command says where they are. The data folder stays
 unless `--purge` (kept anyway when the transcripts clone may hold unpushed
 commits). The user-level hooks stay for your other projects.
 
@@ -489,10 +505,14 @@ User mode uses the same commands with `--user`, installed at the user level
 A hook does work only when all of these hold; otherwise it exits 0 having
 printed and created nothing:
 
-1. `.memmem/config.json` is found walking up from the hook's cwd. The walk
-   stops at the first folder that contains `.git` (a repository or worktree
-   root), so a nested, unrelated repository inside a memmem project is left
-   alone. Every other command finds the project the same way.
+1. `.memmem/config.json` is found walking up from the hook's cwd to the first
+   `.git` boundary (a repository or worktree root), so a nested, unrelated
+   repository inside a memmem project is left alone. A linked git worktree
+   (`git worktree add`, Claude Code `--worktree`, the desktop apps) that has no
+   config of its own uses its main checkout's `.memmem/`: one setup per
+   repository, shared by all its worktrees (memory clone, member, mode, guide,
+   data folder). Submodules and worktrees of bare repositories do not. Every
+   other command finds the project the same way.
 2. A member is recorded (`.memmem/local.json` `member`, or `MEMMEM_MEMBER`).
 3. The mode matches: a `--user` hook acts only in a checkout whose
    `local.json` says `"mode": "user"`, a project-level hook only in the

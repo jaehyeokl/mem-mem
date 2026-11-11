@@ -161,7 +161,8 @@ By default nothing is written into the project's tracked files and nothing is
 committed: the hooks and the `memmem-init` skill are installed once per
 computer at the user level (`~/.claude/settings.json`, `~/.codex/hooks.json`,
 `~/.agents/skills`), and the project only gets a `.memmem/` folder that git
-ignores through `.git/info/exclude`. That works in a repository you share with
+ignores through `.git/info/exclude`. Linked git worktrees of the project use
+the main checkout's setup. That works in a repository you share with
 people who do not use mem-mem. Projects without `.memmem/` are left alone: the
 hooks exit at once there, and what remains visible is the `memmem-init` entry
 in the skill menu, Codex's one-time hook review screen, and Codex's own

@@ -31,3 +31,8 @@ in the injected index instead of relying on search (`rg` sees it only with
    folder is not a team project, tell the user to run `memmem setup` in the
    project; if the push failed, say the note was saved locally and will be
    pushed on the next sync.
+5. If the command fails in any other way (for example `NOT saved`, or a
+   read-only file system), tell the user plainly that the note was NOT saved,
+   quote the reason from the output, and give them the summary so they can save
+   it later. Never say it was saved unless the command printed a saved or
+   queued path.

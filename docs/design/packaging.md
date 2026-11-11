@@ -155,6 +155,11 @@ memmem-server upgrade | backup <dir> | restore <dir> | retention apply [--dry-ru
   full `setup`. A hook acts only when the config is found below the first
   `.git` boundary, a member is recorded, and its `--user` flag matches the
   checkout's mode, so user-level and project-level hooks never both run.
+  Since `.memmem/` is untracked, a linked git worktree has none of its own: at
+  the worktree's `.git` file the walk follows `gitdir` / `commondir` (no git
+  process) to the main checkout and uses its `.memmem/`, so one opt-in covers
+  every worktree; only the outbox stays per checkout, because that is the
+  folder a sandbox lets the session write.
   Measured costs (Claude Code 2.1.319, Codex 0.164/0.167): the init skill is
   listed in every project's skill menu; Codex shows a one-time hook review
   screen (and again whenever a definition changes, so the user-level
