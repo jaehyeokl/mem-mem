@@ -178,7 +178,7 @@ test("session-start notice: done once, waiting_for_answer and failed every sessi
   const transcriptsBare = makeBareRepo(path.join(root, "transcripts.git"), path.join(REPO_DIR, "templates", "transcripts-repo"), env);
   const proj = path.join(root, "app");
   fs.mkdirSync(proj);
-  const s = run(["setup", "--project", "acme", "--memory-repo", memoryBare, "--transcripts-repo", transcriptsBare, "--member", "alice", "--language", "ko"], { env, cwd: proj });
+  const s = run(["setup", "--project", "acme", "--memory-repo", memoryBare, "--transcripts-repo", transcriptsBare, "--member", "alice", "--language", "ko", "--shared"], { env, cwd: proj });
   assert.equal(s.code, 0, s.stderr + s.stdout);
   const work = path.join(root, "server-work");
   sh("git", ["clone", "--quiet", transcriptsBare, work], { env });

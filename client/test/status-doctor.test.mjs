@@ -118,7 +118,7 @@ function doctorWorld() {
   const proj = path.join(root, "app");
   fs.mkdirSync(proj);
   sh("git", ["init", "--quiet", "-b", "main", proj], { env });
-  const r = run(["setup", "--project", "acme", "--memory-repo", "o/m", "--transcripts-repo", "o/t", "--member", "alice", "--no-clone"], { env, cwd: proj });
+  const r = run(["setup", "--project", "acme", "--memory-repo", "o/m", "--transcripts-repo", "o/t", "--member", "alice", "--no-clone", "--shared"], { env, cwd: proj });
   assert.equal(r.code, 0, r.stderr);
   const pathBin = path.join(root, "bin");
   fs.mkdirSync(pathBin);

@@ -1,5 +1,5 @@
-// Hook, skill, and AGENTS.md installation helpers shared by `setup`
-// (and its `memmem install` alias), `uninstall`, and `doctor`.
+// Hook, skill, and AGENTS.md installation helpers shared by `setup`, `uninstall`,
+// and `doctor` (project level, shared mode; the user level is in user.mjs).
 import fs from "node:fs";
 import path from "node:path";
 import { AGENTS_SNIPPET as SNIPPET_TEXT, SKILLS } from "./assets.generated.mjs";
@@ -49,6 +49,17 @@ export function mergeHooks(config, entries) {
   return next;
 }
 
+/** mergeHooks, and also drop our handlers from events not in `entries` (an event left empty is removed). */
+export function setOurHooks(config, entries) {
+  const next = mergeHooks(config, entries);
+  for (const event of Object.keys(next.hooks)) {
+    if (event in entries || !Array.isArray(next.hooks[event])) continue;
+    const kept = withoutOurs(next.hooks[event]);
+    if (kept.length) next.hooks[event] = kept; else delete next.hooks[event];
+  }
+  return next;
+}
+
 /** Remove every memmem handler; drop events (and `hooks`) that end up empty. */
 export function removeOurHooks(config) {
   if (!config.hooks || typeof config.hooks !== "object") return config;
@@ -60,6 +71,17 @@ export function removeOurHooks(config) {
   const next = { ...config };
   if (Object.keys(hooks).length) next.hooks = hooks; else delete next.hooks;
   return next;
+}
+
+/** Positions of our handlers: [{event, group, handler}] (indices into config.hooks[event] and its group's hooks). */
+export function ourHookPositions(config) {
+  const out = [];
+  for (const [event, groups] of Object.entries(config?.hooks || {})) {
+    (Array.isArray(groups) ? groups : []).forEach((g, gi) => {
+      (Array.isArray(g?.hooks) ? g.hooks : []).forEach((h, hi) => { if (isOurs(h)) out.push({ event, group: gi, handler: hi }); });
+    });
+  }
+  return out;
 }
 
 /** Our handlers per event in a settings/hooks object: {Event: [command, ...]}. */
@@ -105,8 +127,8 @@ export function codexEntries(bin, { contextTokens = DEFAULT_CODEX_CONTEXT_TOKENS
   };
 }
 
-function codexContextTokens(say) {
-  const t = codexContextTokensFromEnv();
+export function codexContextTokens(say, env = process.env) {
+  const t = codexContextTokensFromEnv(env);
   if (t !== null) return t;
   say(`WARNING: ${CODEX_CONTEXT_TOKENS_ENV} must be a non-negative integer (0 = unlimited); using ${DEFAULT_CODEX_CONTEXT_TOKENS}.`);
   return DEFAULT_CODEX_CONTEXT_TOKENS;
@@ -122,13 +144,12 @@ export function hookFiles(projectDir) {
 }
 
 /**
- * Write the four hooks for Claude Code (`.claude/settings.json`, or
- * `settings.local.json` with `local`) and Codex (`.codex/hooks.json`; Codex has
- * no local hooks file). Returns { claudeFile, codexFile, codexChanged }.
+ * Shared mode: write the four hooks for Claude Code (`.claude/settings.json`) and
+ * Codex (`.codex/hooks.json`). Returns { claudeFile, codexFile, codexChanged }.
  */
-export function installProjectHooks(projectDir, { bin = "memmem", local = false, say = () => {} } = {}) {
+export function installProjectHooks(projectDir, { bin = "memmem", say = () => {} } = {}) {
   const f = hookFiles(projectDir);
-  const claudeFile = local ? f.claudeLocal : f.claudeShared;
+  const claudeFile = f.claudeShared;
   const c = writeJson(claudeFile, mergeHooks(readJson(claudeFile), claudeEntries(bin)));
   say(`claude-code hooks ${c ? "updated" : "unchanged"}: ${claudeFile}`);
   const x = writeJson(f.codex, mergeHooks(readJson(f.codex), codexEntries(bin, { contextTokens: codexContextTokens(say) })));
@@ -149,8 +170,12 @@ export function writeSafetyNet(projectDir, command, { say = () => {} } = {}) {
   return { file, changed };
 }
 
-/** Split a hook command into its executable (and script, for `node x.mjs`) paths. */
+/**
+ * Split a hook command into its executable (and script, for `node x.mjs`) paths.
+ * A user-level command's `[ -x '<bin>' ] || exit 0; ` guard is skipped.
+ */
 export function commandPaths(command) {
+  command = String(command).replace(/^\[ -x .*?\|\| exit 0;\s*/, "");
   const toks = [];
   const re = /"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+)/g;
   let m;

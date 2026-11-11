@@ -49,7 +49,7 @@ test("--version prints the package version; embedded assets are up to date", () 
   assert.equal(r.stdout, `${pkg.version}\n`);
   const c = spawnSync(process.execPath, [path.join(CLIENT_DIR, "scripts", "embed-assets.mjs"), "--check"], { encoding: "utf8" });
   assert.equal(c.status, 0, c.stderr);
-  assert.match(run(["--help"]).stdout, /setup .*\n.*\n.*\n.*\n {2}init /);
+  assert.match(run(["--help"]).stdout, /\n {2}setup .*\n(?: {8}.*\n)+ {2}install .*\n {2}init /);
 });
 
 test("<subcommand> --help / -h prints that subcommand's usage and exits 0 without running it", () => {

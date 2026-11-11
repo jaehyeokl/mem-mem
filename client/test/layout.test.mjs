@@ -69,7 +69,7 @@ function initEnv() {
   fs.mkdirSync(env.HOME);
   const proj = path.join(root, "app");
   fs.mkdirSync(proj);
-  const init = (...extra) => run(["setup", "--project", "acme", "--memory-repo", "o/m", "--transcripts-repo", "o/t", "--member", "alice", "--no-clone", "--no-safety-net", ...extra], { env, cwd: proj });
+  const init = (...extra) => run(["setup", "--project", "acme", "--memory-repo", "o/m", "--transcripts-repo", "o/t", "--member", "alice", "--no-clone", "--no-safety-net", "--shared", ...extra], { env, cwd: proj });
   const gitignore = () => { try { return fs.readFileSync(path.join(proj, ".gitignore"), "utf8"); } catch { return null; } };
   return { root, env, proj, init, gitignore, git: (...a) => sh("git", a, { cwd: proj, env }) };
 }
@@ -114,7 +114,7 @@ test("setup: an existing pattern that already ignores the clone is respected", (
   fs.writeFileSync(path.join(t.proj, ".gitignore"), "sub/.memmem/memory/\n");
   const sub = path.join(t.proj, "sub");
   fs.mkdirSync(sub);
-  const r = run(["setup", "--project", "acme", "--memory-repo", "o/m", "--transcripts-repo", "o/t", "--member", "alice", "--no-clone", "--no-safety-net", "--dir", sub], { env: t.env, cwd: t.proj });
+  const r = run(["setup", "--project", "acme", "--memory-repo", "o/m", "--transcripts-repo", "o/t", "--member", "alice", "--no-clone", "--no-safety-net", "--shared", "--dir", sub], { env: t.env, cwd: t.proj });
   assert.equal(r.code, 0, r.stderr);
   assert.ok(!fs.existsSync(path.join(sub, ".gitignore")));
   assert.ok(fs.existsSync(path.join(sub, ".memmem", "config.json")));
@@ -145,7 +145,7 @@ test("setup --memory-dir: stored as given, clone and intro use it", () => {
   const proj = path.join(root, "app");
   fs.mkdirSync(proj);
   sh("git", ["init", "--quiet", "-b", "main", proj], { env });
-  const r = run(["setup", "--project", "acme", "--memory-repo", memoryBare, "--transcripts-repo", transcriptsBare, "--member", "alice", "--memory-dir", "vendor/team-memory"], { env, cwd: proj });
+  const r = run(["setup", "--project", "acme", "--memory-repo", memoryBare, "--transcripts-repo", transcriptsBare, "--member", "alice", "--memory-dir", "vendor/team-memory", "--shared"], { env, cwd: proj });
   assert.equal(r.code, 0, r.stderr);
   const cfg = JSON.parse(fs.readFileSync(path.join(proj, ".memmem", "config.json"), "utf8"));
   assert.equal(cfg.memoryDir, "vendor/team-memory");

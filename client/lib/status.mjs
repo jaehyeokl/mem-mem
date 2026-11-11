@@ -3,7 +3,8 @@
 // (`bootstrap/status.json`), and the memory repo's latest commits.
 import fs from "node:fs";
 import path from "node:path";
-import { ensureClone, findConfig, git, projectPaths, repoUrl, sleepSync } from "./util.mjs";
+import { userInstallState } from "./user.mjs";
+import { ensureClone, findConfig, git, modeOf, projectPaths, readLocal, repoUrl, sleepSync } from "./util.mjs";
 
 export const STATUS_BOOLEANS = ["watch", "json"];
 export const USAGE = "usage: memmem status [--watch] [--json]   ingest, reflection, and init progress (pulls the transcripts and memory clones)";
@@ -196,7 +197,19 @@ export function renderUsage(u) {
  * `log` = parsed ingest/log.jsonl, `initStatus` = bootstrap/status.json or null,
  * `request` = my bootstrap/<member>/request.json or null.
  */
-export function buildStatus({ project, member, aliases = [], log, initStatus, request, myFiles = [], memoryCommits = [], transcriptsPulled = true, memoryPulled = true, now = Date.now() }) {
+/** User-level install per tool for `status`: "ok" or what is wrong, or null when the tool is absent and nothing is installed. */
+export function userInstallSummary(st) {
+  const one = (t) => {
+    if (t.error) return "invalid settings file";
+    if (!t.present && !t.events.length) return null;
+    if (t.badPaths.length) return "binary missing";
+    if (t.missing.length) return t.events.length ? `missing ${t.missing.join(", ")}` : "not installed";
+    return t.skill === "ok" ? "ok" : `skill ${t.skill}`;
+  };
+  return { "claude-code": one(st.claude), codex: one(st.codex) };
+}
+
+export function buildStatus({ project, member, aliases = [], log, initStatus, request, myFiles = [], memoryCommits = [], transcriptsPulled = true, memoryPulled = true, now = Date.now(), install = null }) {
   const names = new Set([member, ...aliases]);
   const mine = log.filter((e) => names.has(memberOfFile(e.file)) || names.has(e.member));
   const ingested = mine.filter((e) => e.event === "ingest");
@@ -228,12 +241,17 @@ export function buildStatus({ project, member, aliases = [], log, initStatus, re
     serverVersion,
     memoryCommits,
     pulled: { transcripts: transcriptsPulled, memory: memoryPulled },
+    ...(install ? { install } : {}),
   };
 }
 
 export function renderStatus(s) {
   const L = [];
   L.push(`project ${s.project} (member ${s.member}${s.aliases?.length ? `, aliases ${s.aliases.join(", ")}` : ""})${s.serverVersion ? `, server ${s.serverVersion}` : ""}`);
+  if (s.install?.mode === "user") {
+    const tools = Object.entries(s.install.user || {}).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`);
+    L.push(`mode: user; user-level hooks: ${tools.join(", ") || "none installed (run `memmem install`)"}${s.install.user?.codex ? " (Codex runs them after a one-time approval on its review screen)" : ""}`);
+  } else if (s.install) L.push("mode: shared (project-level hooks)");
   const i = s.ingest;
   L.push(`ingest: ${i.ingested} session file(s) ingested, ${i.skipped} skipped, ${i.waiting} waiting${i.lastIngestAt ? ` (last ${i.lastIngestAt})` : ""}`);
   if (i.lastSkip) L.push(`  last skip: ${i.lastSkip.file}: ${i.lastSkip.error}`);
@@ -298,7 +316,9 @@ export function collectStatus(found) {
   }
   const aliases = memberAliases(paths.transcripts, paths.member);
   const names = [paths.member, ...aliases];
+  const mode = modeOf(readLocal(found.dir));
   return buildStatus({
+    install: mode === "user" ? { mode, user: userInstallSummary(userInstallState()) } : { mode },
     project: paths.project,
     member: paths.member,
     aliases,

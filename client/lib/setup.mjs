@@ -1,26 +1,37 @@
-// `memmem setup`: write <project>/.memmem/config.json, clone both repos, install
-// project-scoped hooks (Claude Code + Codex), skills, the AGENTS.md snippet, the
-// .gitignore lines, and the PATH safety net. In a project that already has
-// .memmem/config.json (a teammate's clone) it only records the member, clones,
-// verifies, and writes the safety net.
+// `memmem setup`: write <project>/.memmem/config.json, clone both repos, register
+// the member. Two modes:
+//  - user (the default): user-level hooks and the memmem-init skill (user.mjs);
+//    the project gets only .memmem/ (config, local.json with mode "user", the
+//    remember guide), hidden through the repository's info/exclude. Nothing is
+//    committed, so every teammate runs the same full command.
+//  - shared (--shared, and every project that already has a committed
+//    .memmem/config.json without a user-mode record): project-scoped hooks,
+//    skills, the AGENTS.md snippet, the .gitignore lines, and the PATH safety
+//    net, committed by the first member. A teammate's plain `memmem setup` only
+//    records the member, clones, verifies, and writes the safety net.
 import fs from "node:fs";
 import path from "node:path";
 import { ensureAgentsSnippet, hookFiles, installProjectHooks, installSkills, ourHooks, readJson, skillStatus, writeSafetyNet } from "./install.mjs";
 import { createPrompter } from "./prompt.mjs";
 import { selfCommand } from "./runtime.mjs";
+import { ensureExcluded, installUser, writeGuide } from "./user.mjs";
 import {
-  commitAndPush, CONFIG_DIR, CONFIG_FILE, defaultRunner, ensureClone, ghUser, git, githubIdOf, isGithubLogin, LANGUAGES, LAYOUT_VERSION, LOCAL_FILE,
-  languageOf, preparePull, projectPaths, readLocal, readProjectInfo, repoUrl, resolveOnPath, safeName, serverLanguageOf, withLock, writeLocal,
+  commitAndPush, CONFIG_DIR, CONFIG_FILE, defaultRunner, ensureClone, ghUser, git, githubIdOf, GUIDE_FILE, isGithubLogin, LANGUAGES, LAYOUT_VERSION, LOCAL_FILE,
+  languageOf, modeOf, preparePull, projectPaths, readLocal, readProjectInfo, repoUrl, resolveOnPath, safeName, serverLanguageOf, withLock, writeLocal,
 } from "./util.mjs";
 
 export const USAGE = `usage: memmem setup --project <name> --memory-repo <org/repo|url|path> --transcripts-repo <org/repo|url|path> [--member <github-login>]
-                    [--language en|ko] [--local] [--hooks-only] [--no-gitignore] [--memory-dir <path>] [--yes] [--dir <project>] [--no-clone]
+                    [--language en|ko] [--shared] [--hooks-only] [--no-gitignore] [--memory-dir <path>] [--yes] [--dir <project>] [--no-clone]
                     [--alias <old-handle>] [--no-email]
-       memmem setup [--member <github-login>]      (teammate: the project already has .memmem/config.json)
+       memmem setup [--member <github-login>]      (shared mode, teammate: the project already has a committed .memmem/config.json)
+Default (user mode): hooks and the memmem-init skill once per computer (user level); the project gets
+only a git-hidden .memmem/ folder and nothing is committed, so every teammate runs the full command.
+--shared: 0.1.0 behavior (project-level hooks, skills, AGENTS.md, .gitignore; the first member commits them).
+--local: deprecated alias of the default.
 The member handle is your GitHub login: --member > \`gh api user\` > a prompt.
 The memory language comes from the transcripts repo's project.json (set on the server); --language overrides it.`;
 
-export const SETUP_BOOLEANS = ["local", "hooksOnly", "noGitignore", "yes", "noClone", "noSafetyNet", "noEmail"];
+export const SETUP_BOOLEANS = ["local", "shared", "hooksOnly", "noGitignore", "yes", "noClone", "noSafetyNet", "noEmail"];
 const MEMBER_RULE = "member must be a GitHub login (letters, digits, single inner hyphens, at most 39 characters)";
 export const GITIGNORE_LINES = [`${CONFIG_DIR}/*`, `!${CONFIG_DIR}/config.json`];
 const CONFIG_FLAGS = ["project", "memoryRepo", "transcriptsRepo", "language", "memoryDir"];
@@ -218,15 +229,12 @@ function cloneBoth(config, dir, say, warn) {
   return rc;
 }
 
-/** Hooks + skills + snippet + safety net. Shared by full setup and --hooks-only. */
+/** Shared mode: hooks + skills + snippet + safety net. Shared by full setup and --hooks-only. */
 function installIntegrations(dir, args, { say, self }) {
-  const local = Boolean(args.local);
-  // --local: hooks are per-machine anyway, so they use the absolute command directly.
-  const bin = args.bin || (local ? self : "memmem");
-  const h = installProjectHooks(dir, { bin, local, say });
+  const h = installProjectHooks(dir, { bin: args.bin || "memmem", say });
   installSkills(dir, { say });
   ensureAgentsSnippet(dir, { say });
-  if (!local && !args.noSafetyNet) {
+  if (!args.noSafetyNet) {
     writeSafetyNet(dir, self, { say });
     if (!args.noGitignore && ensureLocalSettingsIgnored(dir)) say(`added .claude/settings.local.json to ${path.join(dir, ".gitignore")}`);
   }
@@ -238,8 +246,41 @@ function codexNotes(say, changed) {
   say("codex: initialize the team memory with $memmem-init; Claude Code: /memmem-init (or run `memmem init`).");
 }
 
-function pathNote(say) {
-  if (!resolveOnPath("memmem")) say("note: `memmem` is not on PATH here; the shared hooks fail until it is, and the safety net in .claude/settings.local.json covers Claude Code meanwhile. Codex needs memmem on PATH.");
+function pathNote(say, mode = "shared") {
+  if (resolveOnPath("memmem")) return;
+  if (mode === "user") say("note: `memmem` is not on PATH here; the hooks use its absolute path, but the remember guide and the memmem-init skill run `memmem` by name.");
+  else say("note: `memmem` is not on PATH here; the shared hooks fail until it is, and the safety net in .claude/settings.local.json covers Claude Code meanwhile. Codex needs memmem on PATH.");
+}
+
+/** user | shared: --shared > --local (deprecated alias of user) > an existing config without a user-mode record (shared) > user. */
+export function setupMode(args, existing, local) {
+  if (args.shared) return "shared";
+  if (args.local) return "user";
+  if (existing && modeOf(local) !== "user") return "shared";
+  return "user";
+}
+
+/** User mode, project side: local.json mode, the remember guide, info/exclude. */
+function userProject(dir, { say, memoryDir }) {
+  if (writeLocal(dir, { mode: "user" })) say(`mode user: ${path.join(dir, LOCAL_FILE)}`);
+  const g = writeGuide(dir);
+  say(`remember guide ${g}: ${path.join(dir, GUIDE_FILE)}`);
+  const x = ensureExcluded(dir);
+  if (x.added) {
+    writeLocal(dir, { excluded: true });
+    say(`added ${CONFIG_DIR}/ to ${x.file} (not committed; .gitignore untouched)`);
+  } else if (x.skipped === "not a git repository") say(`note: ${dir} is not a git repository; nothing to hide ${CONFIG_DIR}/ from`);
+  // A --memory-dir clone elsewhere inside the project is not covered by .memmem/.
+  const rel = memoryDir ? path.relative(dir, memoryDir) : "";
+  if (x.file && rel && !rel.startsWith("..") && !path.isAbsolute(rel) && !rel.startsWith(CONFIG_DIR + path.sep) && !isIgnored(dir, `${rel.split(path.sep).join("/")}/x`)) {
+    say(`note: ${rel} is inside the project but not git-ignored; add it to ${x.file}`);
+  }
+}
+
+function userNextSteps(say, u) {
+  if (u.codex) say("next (once per computer): open Codex and approve the memmem hooks on its review screen; again only if the hook definitions ever change. Until then `codex exec` skips them.");
+  say("next: initialize the team memory with /memmem-init (Claude Code) or $memmem-init (Codex), or `memmem init`.");
+  say("nothing in this project is committed: every teammate runs the same `memmem setup --project ... --memory-repo ... --transcripts-repo ...` command.");
 }
 
 /** Teammate mode: record member, clone, verify, safety net. */
@@ -261,12 +302,11 @@ async function teammate(dir, existing, args, { say, warn, prompter, self, runner
   const claudeOk = [f.claudeShared, f.claudeLocal].some((file) => { try { return Object.keys(ourHooks(readJson(file))).length >= 4; } catch { return false; } });
   let codexOk = false;
   try { codexOk = Object.keys(ourHooks(readJson(f.codex))).length >= 4; } catch { /* invalid */ }
-  if (!claudeOk || !codexOk) say(`warning: memmem hooks missing in ${!claudeOk ? ".claude/settings.json" : ""}${!claudeOk && !codexOk ? " and " : ""}${!codexOk ? ".codex/hooks.json" : ""}; run \`memmem setup --hooks-only\` (and commit, or add --local)`);
+  if (!claudeOk || !codexOk) say(`warning: memmem hooks missing in ${!claudeOk ? ".claude/settings.json" : ""}${!claudeOk && !codexOk ? " and " : ""}${!codexOk ? ".codex/hooks.json" : ""}; run \`memmem setup --hooks-only\` (and commit)`);
   const stale = skillStatus(dir).filter((s) => s.state !== "ok");
   if (stale.length) say(`warning: skills ${stale.map((s) => `${path.relative(dir, s.dest)} (${s.state})`).join(", ")}; \`memmem setup --hooks-only\` refreshes them`);
   if ((config.layoutVersion ?? 1) > LAYOUT_VERSION + 1) { warn(`memmem setup: this project uses layoutVersion ${config.layoutVersion}; update memmem`); rc = 1; }
-  if (args.local) installIntegrations(dir, args, { say, self });
-  else if (!args.noSafetyNet) {
+  if (!args.noSafetyNet) {
     writeSafetyNet(dir, self, { say });
     if (!args.noGitignore && ensureLocalSettingsIgnored(dir)) say(`added .claude/settings.local.json to ${path.join(dir, ".gitignore")}`);
   }
@@ -275,13 +315,21 @@ async function teammate(dir, existing, args, { say, warn, prompter, self, runner
   return rc;
 }
 
-export async function runSetup(args, { out = process.stdout, err = process.stderr, prompter, self = selfCommand(), runner = defaultRunner } = {}) {
+export async function runSetup(args, { out = process.stdout, err = process.stderr, prompter, self = selfCommand(), runner = defaultRunner, user = {} } = {}) {
   const say = (s) => out.write(s + "\n");
   const warn = (s) => err.write(s + "\n");
   const dir = path.resolve(args.dir || process.cwd());
   let existing;
   try { existing = readExisting(dir); } catch (e) { warn(`memmem setup: ${CONFIG_FILE} is not valid JSON: ${e.message}`); return 1; }
+  if (args.local && args.shared) { warn("memmem setup: --local and --shared cannot be combined"); return 2; }
+  if (args.local) warn("memmem setup: --local is deprecated; user mode (the default) does the same: per-computer hooks, nothing committed in the project.");
+  const mode = setupMode(args, existing, readLocal(dir));
+  // `user`: options for installUser (tests inject env/invocation).
+  const userInstall = () => installUser({ ...user, say });
   if (args.hooksOnly) {
+    if (mode === "user" && (args.local || modeOf(readLocal(dir)) === "user")) {
+      try { userInstall(); return 0; } catch (e) { warn(`memmem setup: ${e.message}`); return 1; }
+    }
     try {
       const h = installIntegrations(dir, args, { say, self });
       codexNotes(say, h.codexChanged);
@@ -292,10 +340,10 @@ export async function runSetup(args, { out = process.stdout, err = process.stder
   const ownPrompter = prompter === undefined;
   prompter = ownPrompter ? createPrompter({ yes: args.yes }) : prompter;
   try {
-    if (existing && !CONFIG_FLAGS.some((k) => args[k] !== undefined)) {
+    if (mode === "shared" && existing && !CONFIG_FLAGS.some((k) => args[k] !== undefined)) {
       return await teammate(dir, existing, args, { say, warn, prompter, self, runner });
     }
-    return await full(dir, existing, args, { say, warn, prompter, self, runner });
+    return await full(dir, existing, args, { say, warn, prompter, self, runner, mode, userInstall });
   } catch (e) {
     warn(`memmem setup: ${e.message}`);
     return 1;
@@ -304,7 +352,7 @@ export async function runSetup(args, { out = process.stdout, err = process.stder
   }
 }
 
-async function full(dir, existing, args, { say, warn, prompter, self, runner }) {
+async function full(dir, existing, args, { say, warn, prompter, self, runner, mode = "shared", userInstall }) {
   const prev = existing?.config || {};
   const pick = async (key, question, def) => {
     if (args[key] !== undefined) return args[key];
@@ -344,6 +392,8 @@ async function full(dir, existing, args, { say, warn, prompter, self, runner }) 
     language = await pick("language", "Language the team memory is written in (en|ko)", "en") ?? "en";
   }
   if (!LANGUAGES.includes(language)) return badLanguage();
+  // User mode: the per-computer pieces first, so a project never has .memmem/ without working hooks.
+  const u = mode === "user" ? userInstall() : null;
   config = { ...prev, project, memoryRepo, transcriptsRepo, language, layoutVersion: LAYOUT_VERSION };
   const memoryDir = args.memoryDir ?? prev.memoryDir;
   if (memoryDir !== undefined) {
@@ -357,7 +407,9 @@ async function full(dir, existing, args, { say, warn, prompter, self, runner }) 
   const lm = writeLocalMember(dir, member);
   if (lm.changed) say(`member ${member}: ${path.join(dir, LOCAL_FILE)} (not committed)${lm.previous ? `; previous handle ${lm.previous} kept as an alias` : ""}`);
   const paths = projectPaths(config, dir);
-  if (!args.noGitignore && args.gitignore !== false) {
+  if (mode === "user") userProject(dir, { say, memoryDir: config.memoryDir ? paths.memory : undefined });
+  else if (modeOf(readLocal(dir)) === "user") writeLocal(dir, { mode: undefined, excluded: undefined });
+  if (mode === "shared" && !args.noGitignore && args.gitignore !== false) {
     const g = ensureGitignore(dir, { memoryDir: config.memoryDir ? paths.memory : undefined });
     if (g.edited) say(`added ${GITIGNORE_LINES.join(" and ")} to ${g.file}`);
     for (const n of g.notes) say(n);
@@ -367,8 +419,13 @@ async function full(dir, existing, args, { say, warn, prompter, self, runner }) 
     rc = cloneBoth(config, dir, say, warn);
     rc = Math.max(rc, registerMember(config, dir, member, { gh: m.gh, args, previous: lm.previous, say, warn }));
   }
+  if (mode === "user") {
+    userNextSteps(say, u);
+    pathNote(say, "user");
+    return rc;
+  }
   const h = installIntegrations(dir, args, { say, self });
-  const commit = [".memmem/config.json", ".gitignore", args.local ? null : ".claude/settings.json", ".claude/skills", ".agents/skills", ".codex/hooks.json", "AGENTS.md"].filter(Boolean);
+  const commit = [".memmem/config.json", ".gitignore", ".claude/settings.json", ".claude/skills", ".agents/skills", ".codex/hooks.json", "AGENTS.md"];
   say(`next: commit ${commit.join(" ")}; teammates then run \`memmem setup\` (member = their GitHub login)`);
   codexNotes(say, h.codexChanged);
   pathNote(say);

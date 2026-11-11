@@ -6,7 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { commandPaths, hookFiles, HOOK_EVENTS, ourHooks, readJson, skillStatus, SNIPPET_BEGIN } from "./install.mjs";
 import { runtimeDescription, VERSION } from "./runtime.mjs";
-import { CONFIG_FILE, defaultRunner, findConfig, ghUser, LANGUAGES, languageOf, LAYOUT_VERSION, memberOf, projectPaths, readProjectInfo, repoUrl, resolveOnPath, serverLanguageOf } from "./util.mjs";
+import { excludeFile, userInstallState } from "./user.mjs";
+import { CONFIG_DIR, CONFIG_FILE, defaultRunner, findConfig, ghUser, git, LANGUAGES, languageOf, LAYOUT_VERSION, memberOf, modeOf, projectPaths, readLocal, readProjectInfo, repoUrl, resolveOnPath, serverLanguageOf } from "./util.mjs";
 
 export { defaultRunner };
 
@@ -25,19 +26,42 @@ function hookCheck(list, label, file, { required }) {
   return ours;
 }
 
+/** User mode: the user-level hooks and skill per tool, the binary in the hook commands, git hiding .memmem/. */
+function userChecks(list, dir, { env, platform }) {
+  const st = userInstallState({ env, platform });
+  for (const [label, t] of [["claude-code", st.claude], ["codex", st.codex]]) {
+    if (t.error) { check(list, `${label} hooks (user)`, "fail", `${t.file}: invalid JSON (${t.error})`); continue; }
+    if (!t.present && !t.events.length) { check(list, `${label} hooks (user)`, "info", `${label} not found on this computer; skipped`); continue; }
+    if (t.badPaths.length) check(list, `${label} hooks (user)`, "fail", `${t.file}: the hook commands point at missing ${t.badPaths.join(", ")}; run \`memmem install\``);
+    else if (t.missing.length) check(list, `${label} hooks (user)`, "warn", `${t.file}: missing ${t.missing.join(", ")}; run \`memmem install\``);
+    else check(list, `${label} hooks (user)`, "ok", t.file);
+    check(list, `${label} skill (user)`, t.skill === "ok" ? "ok" : "warn", t.skill === "ok" ? t.skillDir : `${t.skillDir}: ${t.skill === "stale" ? "out of date" : t.skill === "foreign" ? "not ours" : "missing"} (\`memmem install\` refreshes it)`);
+  }
+  const hidden = git(["check-ignore", "-q", "--", `${CONFIG_DIR}/config.json`], { cwd: dir }).status === 0;
+  if (excludeFile(dir)) check(list, "git ignore", hidden ? "ok" : "warn", hidden ? `${CONFIG_DIR}/ is ignored by git` : `git does not ignore ${CONFIG_DIR}/; \`memmem setup\` adds it to info/exclude`);
+  if (st.codex.present || st.codex.events.length) check(list, "codex review", "info", "Codex runs the user-level memmem hooks only after you approve them once on its review screen (open Codex); again after any change to them. Before that, `codex exec` skips them silently.");
+}
+
 /** Run all checks. Returns the list; `opts` are injectable for tests. */
 export function doctorChecks({ cwd = process.cwd(), runner = defaultRunner, env = process.env, platform = process.platform } = {}) {
   const list = [];
   check(list, "memmem", "ok", `${VERSION} (${runtimeDescription()})`);
   const gv = runner("git", ["--version"]);
   check(list, "git", gv.ok ? "ok" : "fail", gv.ok ? gv.stdout : `git not found: ${gv.stderr}`);
-  const onPath = resolveOnPath("memmem", { env, platform });
-  check(list, "PATH", onPath ? "ok" : "warn", onPath ? `memmem -> ${onPath}` : "memmem is not on PATH: shared hooks (`memmem ...`) fail; Claude Code falls back to the .claude/settings.local.json safety net, Codex has none");
-
   let found = null;
-  try { found = findConfig(cwd); } catch (e) { check(list, "config", "fail", `${CONFIG_FILE}: invalid JSON (${e.message})`); return list; }
-  if (!found) { check(list, "config", "fail", `no ${CONFIG_FILE} in ${cwd} or its parents (run \`memmem setup\`)`); return list; }
+  let foundError = null;
+  try { found = findConfig(cwd); } catch (e) { foundError = e; }
+  const mode = found ? modeOf(readLocal(found.dir)) : "shared";
+  const onPath = resolveOnPath("memmem", { env, platform });
+  const offPath = mode === "user"
+    ? "memmem is not on PATH: the user-level hooks use its absolute path, but the remember guide and memmem-init run `memmem` by name"
+    : "memmem is not on PATH: shared hooks (`memmem ...`) fail; Claude Code falls back to the .claude/settings.local.json safety net, Codex has none";
+  check(list, "PATH", onPath ? "ok" : "warn", onPath ? `memmem -> ${onPath}` : offPath);
+
+  if (foundError) { check(list, "config", "fail", `${CONFIG_FILE}: invalid JSON (${foundError.message})`); return list; }
+  if (!found) { check(list, "config", "fail", `no ${CONFIG_FILE} in ${cwd} or its parents up to the repository root (run \`memmem setup\`)`); return list; }
   const { config, dir } = found;
+  check(list, "mode", "ok", mode === "user" ? "user (user-level hooks; the project has only .memmem/)" : "shared (project-level hooks)");
   const miss = ["project", "memoryRepo", "transcriptsRepo"].filter((k) => typeof config[k] !== "string" || !config[k]);
   if (miss.length) check(list, "config", "fail", `${found.path}: missing ${miss.join(", ")}`);
   else check(list, "config", "ok", found.path);
@@ -89,6 +113,7 @@ export function doctorChecks({ cwd = process.cwd(), runner = defaultRunner, env 
     check(list, "data dir", "ok", `${paths.root} writable`);
   } catch (e) { check(list, "data dir", "fail", `${paths.root}: ${e.message}`); }
 
+  if (mode === "user") { userChecks(list, dir, { env, platform }); return list; }
   const f = hookFiles(dir);
   const shared = hookCheck(list, "claude hooks (shared)", f.claudeShared, { required: false });
   let local = null;

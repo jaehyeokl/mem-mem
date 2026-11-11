@@ -6,7 +6,7 @@ import path from "node:path";
 import { buildContext, maxCharsFromEnv } from "./context.mjs";
 import { resolveTranscript, sessionIdFromPath } from "./normalize.mjs";
 import { MEMMEM_BIN, selfInvocation } from "./runtime.mjs";
-import { detectTool, ensureClone, findConfig, git, languageOf, log, projectPaths, readLocal, readStdinJson, repoUrl, resolveOnPath, safeName, writeLocal } from "./util.mjs";
+import { detectTool, ensureClone, findConfig, git, GUIDE_FILE, languageOf, log, modeOf, projectPaths, readLocal, readLocalStrict, readStdinJson, repoUrl, resolveOnPath, safeName, writeLocal } from "./util.mjs";
 
 export { MEMMEM_BIN };
 
@@ -21,14 +21,30 @@ export function fallbackShouldSkip(args, { env = process.env, platform = process
   return Boolean(args.fallback) && resolveOnPath("memmem", { env, platform }) !== null;
 }
 
-function loadProject(payload, args = {}) {
-  if (process.env.MEMMEM_DISABLE === "1") return null;
-  if (fallbackShouldSkip(args)) return null;
+/**
+ * The activation rule, shared by every hook entry point. A hook does work only
+ * when (1) `.memmem/config.json` is found walking up from the hook's cwd (the
+ * walk stops at the first folder with `.git`, see findConfig), (2) a member is
+ * recorded (local.json or MEMMEM_MEMBER), and (3) the mode matches: user-level
+ * hook commands carry `--user` and act only in a `mode: "user"` checkout;
+ * project-level commands act only in the others. Invalid or unreadable
+ * config/local files, MEMMEM_DISABLE=1, and a --fallback copy with memmem on
+ * PATH also give null: the caller exits 0 having printed and created nothing.
+ */
+export function activeProject(payload, args = {}, { env = process.env } = {}) {
+  if (env.MEMMEM_DISABLE === "1") return null;
+  if (fallbackShouldSkip(args, { env })) return null;
   const cwd = typeof payload.cwd === "string" && payload.cwd ? payload.cwd : process.cwd();
-  let found;
-  try { found = findConfig(cwd); } catch { return null; }
-  if (!found) return null;
-  return { cwd, found, paths: projectPaths(found.config, found.dir) };
+  let found, local;
+  try {
+    found = findConfig(cwd);
+    if (!found || !found.config || typeof found.config !== "object" || Array.isArray(found.config)) return null;
+    local = readLocalStrict(found.dir);
+  } catch { return null; }
+  if (!(env.MEMMEM_MEMBER || local.member)) return null;
+  const mode = modeOf(local);
+  if ((mode === "user") !== Boolean(args.user)) return null;
+  return { cwd, found, mode, paths: projectPaths(found.config, found.dir) };
 }
 
 /** Format the SessionStart output for each CLI. */
@@ -124,9 +140,9 @@ function sessionNotice(found, paths, { language, tool, timeout }) {
 
 export function runSessionStart(args, payload = readStdinJson()) {
   const tool = detectTool(args.tool, payload);
-  const p = loadProject(payload, args);
+  const p = activeProject(payload, args);
   if (!p) return 0; // not a team project (or a fallback copy with memmem on PATH): no output
-  const { found, paths } = p;
+  const { found, paths, mode } = p;
   const timeout = Number(process.env.MEMMEM_PULL_TIMEOUT_MS || 10_000);
   if (!fs.existsSync(path.join(paths.memory, ".git"))) {
     const r = ensureClone(repoUrl(found.config.memoryRepo), paths.memory, { timeout });
@@ -138,7 +154,9 @@ export function runSessionStart(args, payload = readStdinJson()) {
   const maxChars = maxCharsFromEnv();
   const language = languageOf(found.config);
   const notice = sessionNotice(found, paths, { language, tool, timeout });
-  const context = buildContext({ project: paths.project, memDir: paths.memory, maxChars, language, notice });
+  // User mode has no project skill or AGENTS.md block: the intro itself points at the guide.
+  const guide = mode === "user" ? path.join(found.dir, GUIDE_FILE) : "";
+  const context = buildContext({ project: paths.project, memDir: paths.memory, maxChars, language, notice, guide, tool });
   process.stdout.write(formatSessionStart(tool, context) + "\n");
   return 0;
 }
@@ -251,7 +269,7 @@ function checkpointOutput(tool) {
 export function runCheckpoint(args, payload = readStdinJson(), { now = Date.now() } = {}) {
   const tool = detectTool(args.tool, payload);
   try {
-    const p = loadProject(payload, args);
+    const p = activeProject(payload, args);
     if (!p) return 0;
     const { cwd, paths } = p;
     const event = String(payload.hook_event_name || "Stop");
@@ -278,7 +296,7 @@ export function runCheckpoint(args, payload = readStdinJson(), { now = Date.now(
 
 export function runSessionEnd(args, payload = readStdinJson()) {
   const tool = detectTool(args.tool, payload);
-  const p = loadProject(payload, args);
+  const p = activeProject(payload, args);
   if (!p) return 0;
   const { cwd, paths } = p;
   const transcript = payload.transcript_path || "";

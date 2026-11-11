@@ -29,7 +29,7 @@ function world({ git = true } = {}) {
   fs.mkdirSync(proj);
   if (git) sh("git", ["init", "--quiet", "-b", "main", proj], { env });
   const setup = (...a) => run(["setup", ...a], { env, cwd: proj });
-  const full = (...a) => setup("--project", "acme", "--memory-repo", memoryBare, "--transcripts-repo", transcriptsBare, "--member", "alice", ...a);
+  const full = (...a) => setup("--project", "acme", "--memory-repo", memoryBare, "--transcripts-repo", transcriptsBare, "--member", "alice", "--shared", ...a);
   return { root, env, proj, memoryBare, transcriptsBare, setup, full };
 }
 
@@ -98,27 +98,36 @@ test("setup (teammate): only member, clones, verification, safety net", () => {
   assert.match(v.stdout, /\.claude\/skills\/remember\/SKILL\.md \(stale\)/);
 });
 
-test("setup --local: hooks with the absolute command in settings.local.json only", () => {
+// 0.1.1: --local is a deprecated alias of the default user mode (it used to write settings.local.json hooks).
+test("setup --local: deprecated alias of user mode, with a note on stderr", () => {
   const w = world();
-  const r = w.full("--local", "--no-clone");
+  const r = w.setup("--project", "acme", "--memory-repo", w.memoryBare, "--transcripts-repo", w.transcriptsBare, "--member", "alice", "--local", "--no-clone");
   assert.equal(r.code, 0, r.stderr);
-  assert.ok(!fs.existsSync(path.join(w.proj, ".claude", "settings.json")));
-  const local = path.join(w.proj, ".claude", "settings.local.json");
-  assert.deepEqual(commands(local, "SessionStart"), [`${SELF} session-start --tool claude-code`], "one set, no --fallback");
-  assert.doesNotMatch(r.stdout, /next: commit .*\.claude\/settings\.json/);
+  assert.match(r.stderr, /--local is deprecated/);
+  assert.equal(readJson(path.join(w.proj, ".memmem", "local.json")).mode, "user");
+  assert.ok(!fs.existsSync(path.join(w.proj, ".claude")), "no project-level files");
+  assert.doesNotMatch(r.stdout, /next: commit/);
+  const both = w.setup("--local", "--shared", "--no-clone");
+  assert.equal(both.code, 2);
 });
 
-test("setup --hooks-only (and its `install` alias) needs no config", () => {
-  for (const args of [["setup", "--hooks-only"], ["install"]]) {
-    const w = world();
-    const r = run(args, { env: w.env, cwd: w.proj });
-    assert.equal(r.code, 0, r.stderr);
-    assert.ok(!fs.existsSync(path.join(w.proj, ".memmem")), "no config written");
-    assert.ok(fs.existsSync(path.join(w.proj, ".claude", "settings.json")));
-    assert.ok(fs.existsSync(path.join(w.proj, ".codex", "hooks.json")));
-    assert.ok(fs.existsSync(path.join(w.proj, ".agents", "skills", "memmem-init", "SKILL.md")));
-    assert.ok(fs.existsSync(path.join(w.proj, ".claude", "settings.local.json")));
-  }
+// 0.1.1: `install` now means the user-level pieces only; `setup --hooks-only` keeps its project-level meaning outside user mode.
+test("setup --hooks-only needs no config (project level); `install` writes the user level only", () => {
+  const w = world();
+  const r = run(["setup", "--hooks-only"], { env: w.env, cwd: w.proj });
+  assert.equal(r.code, 0, r.stderr);
+  assert.ok(!fs.existsSync(path.join(w.proj, ".memmem")), "no config written");
+  assert.ok(fs.existsSync(path.join(w.proj, ".claude", "settings.json")));
+  assert.ok(fs.existsSync(path.join(w.proj, ".codex", "hooks.json")));
+  assert.ok(fs.existsSync(path.join(w.proj, ".agents", "skills", "memmem-init", "SKILL.md")));
+  assert.ok(fs.existsSync(path.join(w.proj, ".claude", "settings.local.json")));
+  const w2 = world();
+  fs.mkdirSync(path.join(w2.env.HOME, ".claude"));
+  const i = run(["install"], { env: w2.env, cwd: w2.proj });
+  assert.equal(i.code, 0, i.stderr);
+  assert.deepEqual(fs.readdirSync(w2.proj), [".git"], "nothing in the project");
+  assert.ok(fs.existsSync(path.join(w2.env.HOME, ".claude", "settings.json")));
+  assert.ok(fs.existsSync(path.join(w2.env.HOME, ".claude", "skills", "memmem-init", "SKILL.md")));
 });
 
 test("setup: missing values and bad language without a TTY", () => {
@@ -141,7 +150,7 @@ test("setup: interactive prompts fill what flags leave out", async () => {
   // The GitHub login prompt rejects an empty answer and a malformed one, then accepts.
   const p = scriptedPrompter(["acme", w.memoryBare, "", "", "not a login!", "carol", "ko"]);
   const out = sink();
-  const rc = await runSetup({ dir: w.proj, noClone: true }, { out, err: out, prompter: p, self: "/opt/memmem", runner: noGh });
+  const rc = await runSetup({ dir: w.proj, noClone: true, shared: true }, { out, err: out, prompter: p, self: "/opt/memmem", runner: noGh });
   assert.equal(rc, 0, out.s);
   assert.equal(p.asked.length, 7);
   assert.equal(p.asked.filter((q) => /GitHub login/.test(q)).length, 3);
@@ -289,7 +298,7 @@ test("setup registers members/<handle>.json (gh login, display name, git author)
   sh("git", ["config", "user.name", "dave"], { cwd: w.proj, env: w.env });
   sh("git", ["config", "user.email", "dave@example.invalid"], { cwd: w.proj, env: w.env });
   const out = sink();
-  const rc = await runSetup({ dir: w.proj, project: "acme", memoryRepo: w.memoryBare, transcriptsRepo: w.transcriptsBare }, { out, err: out, prompter: null, self: "/opt/memmem", runner: ghAs("dave", "Dave D") });
+  const rc = await runSetup({ dir: w.proj, project: "acme", memoryRepo: w.memoryBare, transcriptsRepo: w.transcriptsBare, shared: true }, { out, err: out, prompter: null, self: "/opt/memmem", runner: ghAs("dave", "Dave D") });
   assert.equal(rc, 0, out.s);
   assert.match(out.s, /member dave \(GitHub login from gh\)/);
   assert.match(out.s, /registered members\/dave\.json/);
@@ -335,7 +344,7 @@ test("setup CLI: gh on PATH supplies the handle; --no-email; a bad --member is r
   const bad = run(["setup", "--project", "acme", "--memory-repo", w.memoryBare, "--transcripts-repo", w.transcriptsBare, "--member", "bad_name", "--no-clone"], { env, cwd: w.proj });
   assert.equal(bad.code, 2);
   assert.match(bad.stderr, /member must be a GitHub login/);
-  const r = run(["setup", "--project", "acme", "--memory-repo", w.memoryBare, "--transcripts-repo", w.transcriptsBare, "--no-email"], { env, cwd: w.proj });
+  const r = run(["setup", "--project", "acme", "--memory-repo", w.memoryBare, "--transcripts-repo", w.transcriptsBare, "--no-email", "--shared"], { env, cwd: w.proj });
   assert.equal(r.code, 0, r.stderr + r.stdout);
   assert.deepEqual(readJson(path.join(w.proj, ".memmem", "local.json")), { member: "erin" });
   const rec = JSON.parse(showFile(w.transcriptsBare, "members/erin.json", env));
@@ -358,7 +367,7 @@ test("setup records githubId from gh; a members file with the same githubId unde
     sh("git", ["push", "--quiet", "origin", "HEAD:main"], { cwd: seed, env: w.env });
 
     const out = sink();
-    const rc = await runSetup({ dir: w.proj, project: "acme", memoryRepo: w.memoryBare, transcriptsRepo: w.transcriptsBare, member: "alice" }, { out, err: out, prompter: null, self: "/opt/memmem", runner: ghAs("alice", "J", null, 42) });
+    const rc = await runSetup({ dir: w.proj, project: "acme", memoryRepo: w.memoryBare, transcriptsRepo: w.transcriptsBare, member: "alice", shared: true }, { out, err: out, prompter: null, self: "/opt/memmem", runner: ghAs("alice", "J", null, 42) });
     assert.equal(rc, 0, out.s);
     assert.match(out.s, /previous handle alice-old \(same GitHub account\) kept as an alias/);
     assert.doesNotMatch(out.s, /previous handle minji/);

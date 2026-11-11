@@ -19,6 +19,21 @@ export const CODEX_FIXTURE = path.join(FIXTURES, "codex-rollout.jsonl");
 const created = [];
 process.on("exit", () => { for (const d of created) fs.rmSync(d, { recursive: true, force: true }); });
 
+// Every test process runs with HOME, the Claude Code / Codex config dirs, and the data
+// root inside a temp folder, so an in-process call that falls back to process.env can
+// never reach the real ~/.claude, ~/.codex, ~/.agents, or ~/.local/share/memmem.
+// (Spawned CLIs get their own fake HOME from isolatedEnv.)
+export const SANDBOX_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "memmem-home-"));
+created.push(SANDBOX_HOME);
+Object.assign(process.env, {
+  HOME: SANDBOX_HOME,
+  USERPROFILE: SANDBOX_HOME,
+  CLAUDE_CONFIG_DIR: path.join(SANDBOX_HOME, ".claude"),
+  CODEX_HOME: path.join(SANDBOX_HOME, ".codex"),
+  XDG_DATA_HOME: path.join(SANDBOX_HOME, ".local", "share"),
+});
+delete process.env.MEMMEM_HOME;
+
 export function tmpDir(prefix = "memmem-test-") {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   created.push(d);
@@ -43,6 +58,42 @@ export function isolatedEnv(home, extra = {}) {
     GIT_COMMITTER_NAME: "Test", GIT_COMMITTER_EMAIL: "test@example.invalid",
     ...extra,
   };
+}
+
+/**
+ * Stricter than isolatedEnv: HOME, XDG_DATA_HOME, MEMMEM_HOME, CLAUDE_CONFIG_DIR, and
+ * CODEX_HOME all point inside `root`, and PATH holds only git's and node's folders
+ * (so `claude` / `codex` on the developer's PATH do not count as installed).
+ */
+export function strictEnv(root, extra = {}) {
+  const home = path.join(root, "home");
+  const bins = [...new Set([path.dirname(sh("sh", ["-c", "command -v git"])), path.dirname(process.execPath)])];
+  return isolatedEnv(home, {
+    PATH: bins.join(path.delimiter),
+    XDG_DATA_HOME: path.join(home, ".local", "share"),
+    MEMMEM_HOME: path.join(root, "data"),
+    CLAUDE_CONFIG_DIR: path.join(home, ".claude"),
+    CODEX_HOME: path.join(home, ".codex"),
+    XDG_STATE_HOME: path.join(root, "xdg-state"), // gh (called by setup) keeps a device id there
+    ...extra,
+  });
+}
+
+/** Every file and folder under `dir` (relative, sorted), with file contents; [] when `dir` does not exist. */
+export function snapshot(dir) {
+  const out = [];
+  const walk = (d) => {
+    let names = [];
+    try { names = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of names.sort((a, b) => a.name.localeCompare(b.name))) {
+      const f = path.join(d, e.name);
+      const rel = path.relative(dir, f);
+      if (e.isDirectory()) { out.push(`${rel}/`); walk(f); }
+      else out.push(`${rel}=${fs.readFileSync(f, "utf8")}`);
+    }
+  };
+  walk(dir);
+  return out;
 }
 
 export function run(args, { env, cwd, input } = {}) {

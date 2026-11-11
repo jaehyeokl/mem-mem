@@ -9,17 +9,21 @@ import { runSetup, SETUP_BOOLEANS, USAGE as SETUP_USAGE } from "../lib/setup.mjs
 import { runStatus, STATUS_BOOLEANS, USAGE as STATUS_USAGE } from "../lib/status.mjs";
 import { runSync } from "../lib/sync.mjs";
 import { runUninstall, UNINSTALL_BOOLEANS } from "../lib/uninstall.mjs";
+import { runInstall } from "../lib/user.mjs";
 import { parseArgs } from "../lib/util.mjs";
 
 const HELP = `memmem ${VERSION}: team memory for Claude Code and Codex
 
   setup --project P --memory-repo R --transcripts-repo R [--member GITHUB_LOGIN]
-        [--language en|ko] [--local] [--hooks-only] [--no-gitignore] [--memory-dir PATH] [--yes] [--dir D]
+        [--language en|ko] [--shared] [--hooks-only] [--no-gitignore] [--memory-dir PATH] [--yes] [--dir D]
         [--alias OLD_HANDLE] [--no-email]
-        First member: config, clones, hooks, skills, AGENTS.md, .gitignore.
-        Teammates (config already committed): memmem setup
+        Default (user mode): hooks and the memmem-init skill once per computer; the project gets only
+        a git-hidden .memmem/ (nothing committed; every teammate runs the same command).
+        --shared: project-level hooks, skills, AGENTS.md, .gitignore, committed by the first member;
+        teammates then run: memmem setup
         The member handle is your GitHub login (--member > \`gh api user\` > prompt);
         setup registers it in the transcripts repo as members/<handle>.json.
+  install                                             install or refresh the user-level hooks and skill only
   init [--depth standard|deep] [--repos a,b] [--style "<text>"] [--history yes|no]
        [--history-only] [--reinit] [--dry-run] [--yes]   initialize the team memory (server side)
   init --state                                        JSON: init state, my contribution, local sessions
@@ -27,28 +31,29 @@ const HELP = `memmem ${VERSION}: team memory for Claude Code and Codex
   status [--watch] [--json]                           ingest, reflection, and init progress
   doctor [--json]                                     check the install
   remember "<text>"   |   remember - < file           save a note for the team
-  uninstall [--purge] [--keep-config]                 remove hooks, skills, AGENTS.md block
+  uninstall [--purge] [--keep-config]                 remove this project's memmem files (user mode: .memmem/)
+  uninstall --user                                    remove the user-level hooks, skill, and Codex trust records
   --version
 
   hooks (called by Claude Code / Codex; read hook JSON on stdin):
-  session-start | session-end | checkpoint  [--tool claude-code|codex]
+  session-start | session-end | checkpoint  [--tool claude-code|codex] [--user]
   sync --transcript FILE --tool T [--session ID] [--cwd DIR]
 
-Project side: <project>/.memmem/config.json (commit it), .memmem/local.json (your member handle),
-              .memmem/memory/ (memory repo clone, git-ignored)
+Project side: <project>/.memmem/config.json (shared mode: commit it), .memmem/local.json (your member
+              handle, mode), .memmem/memory/ (memory repo clone, git-ignored), .memmem/guide/ (user mode)
 Data side:    $MEMMEM_HOME | $XDG_DATA_HOME/memmem | %LOCALAPPDATA%\\memmem | ~/.local/share/memmem
 `;
 
 const HOOKS = new Set(["session-start", "session-end", "checkpoint"]);
-const HOOK_USAGE = (name) => `usage: memmem ${name} [--tool claude-code|codex]   (hook: called by Claude Code / Codex with hook JSON on stdin)`;
+const HOOK_USAGE = (name) => `usage: memmem ${name} [--tool claude-code|codex] [--user]   (hook: called by Claude Code / Codex with hook JSON on stdin; --user: a user-level hook)`;
 /** Per-subcommand usage for `memmem <cmd> --help|-h`. */
 const USAGES = {
   setup: SETUP_USAGE,
-  install: "usage: memmem install   (same as: memmem setup --hooks-only)",
+  install: "usage: memmem install   install or refresh the user-level hooks (Claude Code settings, Codex hooks.json) and the memmem-init skill; no project",
   init: INIT_USAGE,
   status: STATUS_USAGE,
   doctor: "usage: memmem doctor [--json]   check the install (config, clones, hooks, skills, PATH, member)",
-  uninstall: "usage: memmem uninstall [--purge] [--keep-config]   remove hooks, skills, the AGENTS.md block (--purge: also the clones and .memmem/config.json unless --keep-config)",
+  uninstall: "usage: memmem uninstall [--purge] [--keep-config] | --user   shared mode: remove hooks, skills, the AGENTS.md block (--purge: also the clones and .memmem/config.json unless --keep-config); user mode: remove .memmem/ (--purge: also the data folder); --user: remove the user-level hooks, skill, and Codex trust records",
   remember: 'usage: memmem remember "<text>"   |   memmem remember - < file   save a note for the team',
   sync: "usage: memmem sync --transcript FILE --tool claude-code|codex [--session ID] [--cwd DIR]   (hook helper: upload one transcript)",
   "session-start": HOOK_USAGE("session-start"),
@@ -63,15 +68,14 @@ try {
   if (cmd && USAGES[cmd] && wantsHelp(rest)) { process.stdout.write(`${USAGES[cmd]}\n`); rc = 0; }
   else switch (cmd) {
     case "setup": rc = await runSetup(parseArgs(rest, { booleans: SETUP_BOOLEANS })); break;
-    // An alias of `setup --hooks-only`.
-    case "install": rc = await runSetup({ ...parseArgs(rest, { booleans: SETUP_BOOLEANS }), hooksOnly: true }); break;
+    case "install": rc = runInstall(parseArgs(rest)); break;
     case "init": rc = await runInit(parseArgs(rest, { booleans: INIT_BOOLEANS })); break;
     case "status": rc = runStatus(parseArgs(rest, { booleans: STATUS_BOOLEANS })); break;
     case "doctor": rc = runDoctor(parseArgs(rest, { booleans: ["json"] })); break;
     case "uninstall": rc = runUninstall(parseArgs(rest, { booleans: UNINSTALL_BOOLEANS })); break;
-    case "session-start": rc = runSessionStart(parseArgs(rest, { booleans: ["fallback"] })); break;
-    case "session-end": rc = runSessionEnd(parseArgs(rest, { booleans: ["fallback"] })); break;
-    case "checkpoint": rc = runCheckpoint(parseArgs(rest, { booleans: ["fallback"] })); break;
+    case "session-start": rc = runSessionStart(parseArgs(rest, { booleans: ["fallback", "user"] })); break;
+    case "session-end": rc = runSessionEnd(parseArgs(rest, { booleans: ["fallback", "user"] })); break;
+    case "checkpoint": rc = runCheckpoint(parseArgs(rest, { booleans: ["fallback", "user"] })); break;
     case "sync": rc = runSync(parseArgs(rest)); break;
     case "remember": rc = runRemember(parseArgs(rest)); break;
     case "-v": case "--version": case "version": process.stdout.write(`${VERSION}\n`); rc = 0; break;

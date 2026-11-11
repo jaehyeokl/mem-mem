@@ -7,10 +7,16 @@ import path from "node:path";
 // Project side (inside the project folder; the model reads the memory clone):
 //   <project>/.memmem/config.json   committed by the team
 //   <project>/.memmem/memory/       memory repo clone (git-ignored)
+//   <project>/.memmem/local.json    per checkout: member, mode ("user" = user-level hooks)
 // Data side (per user, per project; the model never needs it): see dataRoot().
 export const CONFIG_DIR = ".memmem";
 export const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 export const LOCAL_FILE = path.join(CONFIG_DIR, "local.json");
+// GUIDE_FILE (user mode): how to save a note; the session-start context points here.
+// OUTBOX_DIR: notes `memmem remember` could not commit because the data folder was
+// read-only (a sandbox); `sync` and the next `remember` move them to the transcripts repo.
+export const GUIDE_FILE = path.join(CONFIG_DIR, "guide", "remember.md");
+export const OUTBOX_DIR = path.join(CONFIG_DIR, "outbox");
 export const TOOLS = ["claude-code", "codex"];
 // Repo layout version (config.json, trajectory meta, bootstrap/request.json).
 // The client reads layouts LAYOUT_VERSION - 1 .. LAYOUT_VERSION + 1.
@@ -82,8 +88,11 @@ export function safeName(s, fallback = "unknown") {
 }
 
 /**
- * Walk up from `start` to the nearest folder with `.memmem/config.json`.
- * Returns { path, dir, config }, or null when no folder up to the root has one.
+ * Walk up from `start` to the nearest folder with `.memmem/config.json`, stopping
+ * at the first folder that contains `.git` (file or directory: a repository or
+ * worktree root) after checking it, so a nested unrelated repository never picks
+ * up the enclosing project's config. Returns { path, dir, config }, or null.
+ * Throws on invalid JSON (callers that must stay silent catch it).
  */
 export function findConfig(start) {
   let dir = path.resolve(start || process.cwd());
@@ -93,10 +102,16 @@ export function findConfig(start) {
       const config = JSON.parse(fs.readFileSync(p, "utf8"));
       return { path: p, dir, config };
     }
+    if (fs.existsSync(path.join(dir, ".git"))) return null;
     const parent = path.dirname(dir);
     if (parent === dir) return null;
     dir = parent;
   }
+}
+
+/** Mode of this checkout from .memmem/local.json: "user" (user-level hooks) or "shared" (absent; project-level hooks). */
+export function modeOf(local) {
+  return local?.mode === "user" ? "user" : "shared";
 }
 
 /** Per-user, git-ignored `<project>/.memmem/local.json` ({member}); {} when absent or invalid. */
@@ -105,6 +120,15 @@ export function readLocal(projectDir) {
     const v = JSON.parse(fs.readFileSync(path.join(projectDir, LOCAL_FILE), "utf8"));
     return v && typeof v === "object" ? v : {};
   } catch { return {}; }
+}
+
+/** `<project>/.memmem/local.json` as an object ({} when absent); throws when it is unreadable or not a JSON object. */
+export function readLocalStrict(projectDir) {
+  const file = path.join(projectDir, LOCAL_FILE);
+  if (!fs.existsSync(file)) return {};
+  const v = JSON.parse(fs.readFileSync(file, "utf8"));
+  if (!v || typeof v !== "object" || Array.isArray(v)) throw new Error(`${file}: not a JSON object`);
+  return v;
 }
 
 /** Member name: $MEMMEM_MEMBER > .memmem/local.json; "" when neither has one. */
@@ -210,6 +234,11 @@ export function resolveOnPath(cmd, { env = process.env, platform = process.platf
     }
   }
   return null;
+}
+
+/** Single-quote `s` for a POSIX shell (always quoted, so the text is stable). */
+export function posixQuote(s) {
+  return `'${String(s).replace(/'/g, "'\\''")}'`;
 }
 
 /** Quote a path for a hook command line (run by sh/bash; Git Bash on Windows). */

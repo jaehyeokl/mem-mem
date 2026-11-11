@@ -14,7 +14,7 @@ test("end to end: setup -> session-start -> session-end -> trajectory on main", 
   fs.mkdirSync(proj, { recursive: true });
   sh("git", ["init", "--quiet", "-b", "main", proj], { env });
 
-  const init = run(["setup", "--project", "acme", "--memory-repo", memoryBare, "--transcripts-repo", transcriptsBare, "--member", "alice", "--language", "ko"], { env, cwd: proj });
+  const init = run(["setup", "--project", "acme", "--memory-repo", memoryBare, "--transcripts-repo", transcriptsBare, "--member", "alice", "--language", "ko", "--shared"], { env, cwd: proj });
   assert.equal(init.code, 0, init.stderr);
   const cfg = JSON.parse(fs.readFileSync(path.join(proj, ".memmem", "config.json"), "utf8"));
   assert.deepEqual(cfg, { project: "acme", memoryRepo: memoryBare, transcriptsRepo: transcriptsBare, language: "ko", layoutVersion: 1 });

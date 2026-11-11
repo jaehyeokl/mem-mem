@@ -1,18 +1,62 @@
-// `memmem uninstall [--purge] [--keep-config]`: remove memmem hooks from the
-// project's Claude Code (shared and local) and Codex hook files, the skills,
-// and the AGENTS.md block. Clones and .memmem/config.json stay unless --purge
-// (with --purge, --keep-config still keeps config.json).
+// `memmem uninstall [--purge] [--keep-config]`
+//  - shared mode: remove memmem hooks from the project's Claude Code (shared and
+//    local) and Codex hook files, the skills, and the AGENTS.md block. Clones and
+//    .memmem/config.json stay unless --purge (with --purge, --keep-config still
+//    keeps config.json).
+//  - user mode: remove .memmem/ and the info/exclude line; the data folder stays
+//    unless --purge. Nothing else in the project is touched.
+// `memmem uninstall --user`: remove the user-level hooks, skills, and Codex trust records (user.mjs).
 import fs from "node:fs";
 import path from "node:path";
 import { hookFiles, readJson, removeAgentsSnippet, removeOurHooks, writeJson } from "./install.mjs";
 import { SKILLS } from "./assets.generated.mjs";
-import { CONFIG_DIR, CONFIG_FILE, findConfig, git, LOCAL_FILE, projectPaths } from "./util.mjs";
+import { removeExcluded, uninstallUser } from "./user.mjs";
+import { CONFIG_DIR, CONFIG_FILE, findConfig, git, LOCAL_FILE, modeOf, OUTBOX_DIR, projectPaths, readLocal } from "./util.mjs";
 
-export const UNINSTALL_BOOLEANS = ["purge", "keepConfig"];
+export const UNINSTALL_BOOLEANS = ["purge", "keepConfig", "user"];
 
-export function runUninstall(args, { out = process.stdout, err = process.stderr } = {}) {
+/** Remove the data folder unless the transcripts clone may hold unpushed commits. */
+function purgeData(paths, say) {
+  if (fs.existsSync(path.join(paths.transcripts, ".git"))) {
+    const ahead = git(["log", "--oneline", "@{u}..HEAD"], { cwd: paths.transcripts });
+    if (!ahead.ok || ahead.stdout) { say(`kept ${paths.transcripts}: it may have unpushed commits (push them or delete it by hand)`); return; }
+  } else if (!fs.existsSync(paths.root)) return;
+  fs.rmSync(paths.root, { recursive: true, force: true });
+  say(`removed ${paths.root}`);
+}
+
+/** Outbox notes not uploaded yet. */
+function outboxNotes(dir) {
+  try { return fs.readdirSync(path.join(dir, OUTBOX_DIR)).filter((n) => n.endsWith(".md")); } catch { return []; }
+}
+
+/** User mode, project side: .memmem/ (unless the outbox holds notes) and our info/exclude line. */
+function uninstallUserProject(found, args, say) {
+  const dir = found.dir;
+  const local = readLocal(dir);
+  if (args.purge) {
+    const paths = projectPaths(found.config, dir);
+    purgeData(paths, say);
+    if (!paths.memory.startsWith(path.join(dir, CONFIG_DIR) + path.sep)) { fs.rmSync(paths.memory, { recursive: true, force: true }); say(`removed ${paths.memory}`); }
+  } else say("kept the data folder (transcripts clone, logs; use --purge to remove it)");
+  const pending = outboxNotes(dir);
+  if (pending.length) {
+    say(`kept ${path.join(dir, CONFIG_DIR)}: ${pending.length} note(s) in ${OUTBOX_DIR} are not uploaded yet (a session end or \`memmem remember\` outside the sandbox uploads them; then run uninstall again)`);
+    return 0;
+  }
+  fs.rmSync(path.join(dir, CONFIG_DIR), { recursive: true, force: true });
+  say(`removed ${path.join(dir, CONFIG_DIR)}`);
+  if (local.excluded && removeExcluded(dir)) say(`removed ${CONFIG_DIR}/ from the repository's info/exclude`);
+  say("the user-level hooks and skill stay for other projects (`memmem uninstall --user` removes them)");
+  return 0;
+}
+
+export function runUninstall(args, { out = process.stdout, err = process.stderr, user = {} } = {}) {
   const say = (s) => out.write(s + "\n");
-  const found = findConfig(args.dir || args.cwd || process.cwd());
+  if (args.user) return uninstallUser({ ...user, say, warn: (s) => err.write(s + "\n") });
+  let found;
+  try { found = findConfig(args.dir || args.cwd || process.cwd()); } catch (e) { err.write(`memmem uninstall: ${CONFIG_FILE}: ${e.message}\n`); return 1; }
+  if (found && modeOf(readLocal(found.dir)) === "user") return uninstallUserProject(found, args, say);
   const dir = path.resolve(args.dir || found?.dir || process.cwd());
   let rc = 0;
   for (const file of Object.values(hookFiles(dir))) {
@@ -44,11 +88,7 @@ export function runUninstall(args, { out = process.stdout, err = process.stderr 
   if (args.purge && found) {
     const paths = projectPaths(found.config, found.dir);
     // Never drop commits a failed push left in the transcripts clone.
-    if (fs.existsSync(path.join(paths.transcripts, ".git"))) {
-      const ahead = git(["log", "--oneline", "@{u}..HEAD"], { cwd: paths.transcripts });
-      if (!ahead.ok || ahead.stdout) { say(`kept ${paths.transcripts}: it may have unpushed commits (push them or delete it by hand)`); }
-      else { fs.rmSync(paths.root, { recursive: true, force: true }); say(`removed ${paths.root}`); }
-    } else if (fs.existsSync(paths.root)) { fs.rmSync(paths.root, { recursive: true, force: true }); say(`removed ${paths.root}`); }
+    purgeData(paths, say);
     fs.rmSync(paths.memory, { recursive: true, force: true });
     say(`removed ${paths.memory}`);
     fs.rmSync(path.join(found.dir, LOCAL_FILE), { force: true });

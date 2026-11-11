@@ -69,6 +69,13 @@ const INTRO = {
   ],
 };
 
+// User mode: there is no remember skill or AGENTS.md block, so the intro's last sentence
+// points at the per-checkout guide and names the init skill instead.
+const POINTER = {
+  en: ({ guide, skill }) => `Never edit files under this path: the server updates the team memory from session transcripts. When the user asks to remember or record something for the team ("remember this", "기억해"), read \`${guide}\` and follow it. To initialize the team memory or add past sessions, the user runs ${skill}.`,
+  ko: ({ guide, skill }) => `이 경로의 파일은 직접 수정하지 마라: 팀 메모리는 세션 기록으로 서버가 갱신한다. 사용자가 팀을 위해 무언가를 기억하거나 기록하라고 하면("기억해", "remember") \`${guide}\`를 읽고 그대로 따르라. 팀 메모리 초기화나 과거 세션 추가는 사용자가 ${skill}로 한다.`,
+};
+
 const TRUNCATED = {
   en: { core: (name) => `(truncated; read \`${name}\` for the full file)`, folder: (dir) => `(truncated; read \`${dir}/MEMORY.md\` for the rest of the list)` },
   ko: { core: (name) => `(잘림. 전체는 \`${name}\`를 직접 읽어라)`, folder: (dir) => `(잘림. 나머지 목록은 \`${dir}/MEMORY.md\`를 직접 읽어라)` },
@@ -76,8 +83,11 @@ const TRUNCATED = {
 
 const lang = (language) => (language === "ko" ? "ko" : "en");
 
-export function intro({ project, memDir, language = "en" }) {
-  return INTRO[lang(language)]({ project, memDir }).join(" ");
+/** The intro; with `guide` (user mode) its last sentence is the guide pointer for `tool`. */
+export function intro({ project, memDir, language = "en", guide = "", tool = "claude-code" }) {
+  const lines = INTRO[lang(language)]({ project, memDir });
+  if (guide) lines[lines.length - 1] = POINTER[lang(language)]({ guide, skill: tool === "codex" ? "$memmem-init" : "/memmem-init" });
+  return lines.join(" ");
 }
 
 /** Cut `body` to at most `limit` chars, preferring a line boundary. */
@@ -98,9 +108,10 @@ const render = (s) => `\n## ${s.title}\n\n${s.body}\n`;
  * `maxChars` only when those two alone do. Truncation notes use clone-relative paths
  * (the intro names the clone).
  */
-export function buildContext({ project, memDir, maxChars = DEFAULT_MAX_CHARS, language = "en", notice = "" }) {
+export function buildContext({ project, memDir, maxChars = DEFAULT_MAX_CHARS, language = "en", notice = "", guide = "", tool = "claude-code" }) {
   // `notice`: one line about the team-memory init state (see hooks.mjs initNotice), first and never truncated.
-  const head = (notice ? `${notice}\n\n` : "") + intro({ project, memDir, language }) + "\n";
+  // `guide` (user mode): the remember guide the intro points at; part of the never-truncated head.
+  const head = (notice ? `${notice}\n\n` : "") + intro({ project, memDir, language, guide, tool }) + "\n";
   const T = TRUNCATED[lang(language)];
   const rootIndex = read(path.join(memDir, "MEMORY.md"));
   const sections = [];
