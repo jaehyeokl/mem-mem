@@ -15,7 +15,10 @@ every project; step 0 makes it do nothing in a project without mem-mem.
 
 0. First check that this project uses mem-mem: look for `.memmem/config.json`
    in the current directory and its parents, up to the repository root (the
-   folder that contains `.git`). If there is none, tell the user in one or two
+   folder that contains `.git`). In a linked git worktree (its `.git` is a
+   file) also look in the main checkout: the parent of the folder that
+   `git rev-parse --path-format=absolute --git-common-dir` prints, which
+   memmem uses for every worktree. If there is none, tell the user in one or two
    lines that this project is not set up for mem-mem (someone runs
    `memmem setup` in it first) and stop: run no other command, and create or
    change no file.
