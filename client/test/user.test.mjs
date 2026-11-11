@@ -14,6 +14,9 @@ import { findConfig, mainCheckout, readLocal } from "../lib/util.mjs";
 import { BIN, CLAUDE_FIXTURE, CODEX_FIXTURE, lsTree, makeBareRepo, REPO_DIR, run, sh, snapshot, strictEnv, TEST_BIN, tmpDir, waitFor } from "./helpers.mjs";
 
 const readJson = (f) => JSON.parse(fs.readFileSync(f, "utf8"));
+// git records real paths (macOS: /var is a symlink to /private/var), and a spawned CLI's process.cwd() is real too.
+const real = (p) => fs.realpathSync(p);
+const reEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const TEMPLATE = path.join(REPO_DIR, "templates", "memory-repo", "en");
 const HOOKS = ["session-start", "session-end", "checkpoint"];
 const TOOLS = ["claude-code", "codex"];
@@ -259,12 +262,14 @@ test("uninstall --user removes exactly the Codex trust records of our hooks from
   const before = fs.readFileSync(hooksFile, "utf8");
   installUser({ env, platform: "linux", invocation: FAKE });
   const keys = codexTrustKeys(hooksFile, readJson(hooksFile));
-  assert.deepEqual(keys, ["session_start:1:0", "session_end:0:0", "stop:0:0", "pre_compact:0:0"].map((k) => `${hooksFile}:${k}`));
+  // Codex keys the records by the hooks.json path it was given; memmem removes both the given and the real form.
+  const forms = [...new Set([hooksFile, real(hooksFile)])];
+  assert.deepEqual(keys, ["session_start:1:0", "session_end:0:0", "stop:0:0", "pre_compact:0:0"].flatMap((k) => forms.map((f) => `${f}:${k}`)));
   const rec = (key, hash) => `[hooks.state."${key}"]\ntrusted_hash = "sha256:${hash}"\n`;
   const proj = path.join(root, "proj", "M2");
   const head = `model_reasoning_effort = "low"\n\n[sandbox_workspace_write]\nexclude_slash_tmp = true\n\n[projects."${proj}"]\ntrust_level = "trusted"\n\n[hooks.state]\n\n`;
   const foreign = [rec(`${hooksFile}:session_start:0:0`, "aa11"), rec(`${proj}/.codex/hooks.json:session_start:0:0`, "bb22")];
-  const ours = keys.map((k, i) => rec(k, `cc3${i}`));
+  const ours = keys.filter((k) => k.startsWith(`${hooksFile}:`)).map((k, i) => rec(k, `cc3${i}`));
   const toml = head + [foreign[0], ours[0], foreign[1], ours[1], ours[2], ours[3]].join("\n");
   fs.writeFileSync(path.join(codex, "config.toml"), toml);
   const said = [];
@@ -394,7 +399,8 @@ test("user mode: session-start --user injects the memory and the guide pointer (
 
   // The installed command itself (guard included) runs the hook end to end: session-end uploads the transcript.
   const cmd = readJson(path.join(w.env.HOME, ".claude", "settings.json")).hooks.SessionEnd[0].hooks[0].command;
-  const end = spawnSync("sh", ["-c", cmd], { env: { ...w.env, MEMMEM_SYNC_DELAY_MS: "0" }, cwd: w.proj, encoding: "utf8", input: JSON.stringify({ session_id: "11111111-2222-4333-8444-555555555555", transcript_path: CLAUDE_FIXTURE, cwd: w.proj, hook_event_name: "SessionEnd" }) });
+  // Absolute /bin/sh: the strict PATH holds only git's and node's folders (macOS keeps sh in /bin, git in /usr/bin).
+  const end = spawnSync("/bin/sh", ["-c", cmd], { env: { ...w.env, MEMMEM_SYNC_DELAY_MS: "0" }, cwd: w.proj, encoding: "utf8", input: JSON.stringify({ session_id: "11111111-2222-4333-8444-555555555555", transcript_path: CLAUDE_FIXTURE, cwd: w.proj, hook_event_name: "SessionEnd" }) });
   assert.deepEqual([end.status, end.stdout, end.stderr], [0, "", ""]);
   await waitFor(() => lsTree(w.transcriptsBare, w.env).some((f) => /^trajectories\/.*\/alice\/claude-code\//.test(f)), { timeoutMs: 30_000 });
   assert.equal(status(w), "");
@@ -508,11 +514,11 @@ test("mainCheckout / findConfig: linked worktrees use the main checkout's .memme
   sh("git", ["worktree", "add", "--quiet", "-b", "x", nested], { cwd: main, env });
   fs.mkdirSync(path.join(sib, "src", "deep"), { recursive: true });
   assert.equal(mainCheckout(main), null, "a main checkout has no main checkout");
-  assert.equal(mainCheckout(sib), main);
-  assert.equal(mainCheckout(nested), main);
+  assert.equal(mainCheckout(sib), real(main), "the path git recorded");
+  assert.equal(mainCheckout(nested), real(main));
   for (const [from, checkout] of [[sib, sib], [nested, nested], [path.join(sib, "src", "deep"), sib]]) {
     const f = findConfig(from);
-    assert.deepEqual([f.dir, f.checkout, f.config.project], [main, checkout, "acme"], from);
+    assert.deepEqual([f.dir, f.checkout, f.config.project], [real(main), checkout, "acme"], from);
   }
   assert.equal(findConfig(main).checkout, undefined, "set only for a worktree");
   assert.deepEqual(readLocal(sib), { member: "alice", mode: "user" }, "local.json falls back to the main checkout");
@@ -548,12 +554,12 @@ test("user mode in a linked worktree: hooks act with the main checkout's setup; 
   const w = worktreeWorld();
   const sid = "22222222-2222-4333-8444-555555555555";
   const input = (ev, extra = {}) => JSON.stringify({ session_id: sid, cwd: w.wt, hook_event_name: ev, ...extra });
-  const guide = path.join(w.proj, ".memmem", "guide", "remember.md");
+  const guide = path.join(real(w.proj), ".memmem", "guide", "remember.md");
   const s = run(["session-start", "--tool", "codex", "--user"], { env: w.env, cwd: w.wt, input: input("SessionStart") });
   assert.equal(s.code, 0, s.stderr);
   assert.match(s.stdout, /## MEMORY\.md/);
   assert.ok(s.stdout.includes(`\`${guide}\``), "the pointer names the main checkout's guide");
-  assert.ok(s.stdout.includes(path.join(w.proj, ".memmem", "memory")), "the main checkout's memory clone");
+  assert.ok(s.stdout.includes(path.join(real(w.proj), ".memmem", "memory")), "the main checkout's memory clone");
   for (const sub of ["session-start", "session-end", "checkpoint"]) {
     const r = run([sub, "--tool", "claude-code"], { env: w.env, cwd: w.wt, input: input("PreCompact", { transcript_path: CLAUDE_FIXTURE }) });
     assert.deepEqual([r.code, r.stdout, r.stderr], [0, "", ""], `${sub} without --user`);
@@ -571,10 +577,10 @@ test("user mode in a linked worktree: hooks act with the main checkout's setup; 
   // setup inside the worktree: one line, nothing created; status and doctor name the main checkout.
   const su = run(["setup", "--project", "acme", "--memory-repo", w.memoryBare, "--transcripts-repo", w.transcriptsBare, "--member", "alice"], { env: w.env, cwd: w.wt });
   assert.equal(su.code, 0, su.stderr);
-  assert.equal(su.stdout, `this worktree already uses the memmem setup of its main checkout ${w.proj}; nothing to do here\n`);
+  assert.equal(su.stdout, `this worktree already uses the memmem setup of its main checkout ${real(w.proj)}; nothing to do here\n`);
   assert.ok(!fs.existsSync(path.join(w.wt, ".memmem")));
   const st = run(["status"], { env: w.env, cwd: w.wt });
-  assert.match(st.stdout, new RegExp(`\nlinked git worktree ${w.wt.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: using the main checkout `));
+  assert.match(st.stdout, new RegExp(`\nlinked git worktree ${reEscape(real(w.wt))}: using the main checkout ${reEscape(real(w.proj))}\n`));
   const doc = doctorChecks({ cwd: w.wt, runner: () => ({ ok: true, stdout: "" }), env: w.env }).find((c) => c.name === "worktree");
   assert.equal(doc.status, "info");
   assert.match(doc.detail, /is a linked git worktree; it uses the main checkout /);
@@ -604,14 +610,14 @@ test("remember from a linked worktree under a read-only data folder: the worktre
   try {
     const r = run(["remember", "Worktree note"], { env: w.env, cwd: w.wt });
     assert.equal(r.code, 0, r.stderr);
-    assert.ok(r.stdout.startsWith(`queued ${path.join(w.wt, ".memmem", "outbox")}`), r.stdout);
+    assert.ok(r.stdout.startsWith(`queued ${path.join(real(w.wt), ".memmem", "outbox")}`), r.stdout);
   } finally { fs.chmodSync(data, 0o755); }
   assert.ok(!fs.existsSync(path.join(w.proj, ".memmem", "outbox")), "not in the main checkout");
   assert.equal(w.wtStatus(), "", "hidden by the shared info/exclude");
   // uninstall from the main checkout keeps .memmem/ while a worktree holds a note.
   const u = run(["uninstall"], { env: w.env, cwd: w.proj });
   assert.equal(u.code, 0, u.stderr);
-  assert.match(u.stdout, new RegExp(`queued note\\(s\\) are not uploaded yet \\(1 in ${path.join(w.wt, ".memmem", "outbox").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`));
+  assert.match(u.stdout, new RegExp(`queued note\\(s\\) are not uploaded yet \\(1 in ${reEscape(path.join(real(w.wt), ".memmem", "outbox"))}\\)`));
   assert.ok(fs.existsSync(path.join(w.proj, ".memmem", "config.json")));
   const sync = () => run(["sync", "--tool", "claude-code", "--transcript", CLAUDE_FIXTURE, "--session", "s-w", "--cwd", w.wt], { env: w.env, cwd: w.wt });
   assert.equal(sync().code, 0);
@@ -627,4 +633,3 @@ test("remember from a linked worktree under a read-only data folder: the worktre
   assert.ok(!fs.existsSync(path.join(w.proj, ".memmem")));
   assert.equal(status(w), "");
 });
-
