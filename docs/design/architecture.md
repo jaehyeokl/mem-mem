@@ -180,15 +180,18 @@ their hook configuration
   directly."
 - The model reads files when it needs them. The same as Letta's progressive
   discovery.
-- Codex: `SessionStart` in `<repo>/.codex/hooks.json` (what `memmem setup`
-  writes; `~/.codex/hooks.json` also works). The `AGENTS.md` block carries
-  fixed guidance and the remember behaviour.
+- Codex: `SessionStart` in `~/.codex/hooks.json` (user mode, the default) or
+  `<repo>/.codex/hooks.json` (shared mode). In shared mode the `AGENTS.md`
+  block carries fixed guidance and the remember behaviour; in user mode the
+  injected intro points at `.memmem/guide/remember.md` instead.
 
 **Writing (explicit notes)**
 
 - The remember skill (a Claude Code skill; Codex gets the same instruction
-  from the `AGENTS.md` block) runs `memmem remember`, which commits and pushes
-  a note to `inbox/<member>/` in B. The worker includes it in a turn.
+  from the `AGENTS.md` block; in user mode both follow `.memmem/guide/remember.md`)
+  runs `memmem remember`, which commits and pushes a note to `inbox/<member>/`
+  in B. The worker includes it in a turn. When a sandbox makes the data folder
+  read-only, the note waits in `<project>/.memmem/outbox/` until the next sync.
 - Editing repo A directly is not allowed in phase 1. Use a PR if needed.
 
 **Sync**

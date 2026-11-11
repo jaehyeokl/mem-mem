@@ -139,19 +139,40 @@ memmem-server upgrade | backup <dir> | restore <dir> | retention apply [--dry-ru
 ## 6. Client design decisions
 
 - Commands: `setup` (config + clone + hooks + skills; what used to be
-  init + install), `init` (memory initialization), `status`, `doctor`,
-  `remember`, `uninstall`, and the hook-only `session-start`/`session-end`/
-  `checkpoint`/`sync`. `setup --hooks-only` reinstalls only the hooks, skills
-  and `AGENTS.md` block.
-- **Committing is the default.** The first teammate's `setup` writes
-  `.memmem/config.json`, the hooks in `.claude/settings.json`,
+  init + install), `install` (the user-level hooks and skill only), `init`
+  (memory initialization), `status`, `doctor`, `remember`, `uninstall`
+  (`--user` for the user level), and the hook-only `session-start`/
+  `session-end`/`checkpoint`/`sync`.
+- **User mode is the default (0.1.1).** The first team project lives in a
+  client's repository shared with outsiders: nothing of mem-mem may be
+  committed there and nobody else may be affected, and a project that does not
+  use memmem must not be polluted. So the hooks (with a `--user` flag and a
+  `[ -x <bin> ] || exit 0` guard) and the `memmem-init` skill are installed
+  once per computer at the user level (`~/.claude/settings.json`,
+  `~/.codex/hooks.json`, `~/.agents/skills`), and a project opts in only by
+  having `.memmem/` (config, `local.json` with `mode: "user"`, a remember
+  guide), hidden through `.git/info/exclude`. Every teammate runs the same
+  full `setup`. A hook acts only when the config is found below the first
+  `.git` boundary, a member is recorded, and its `--user` flag matches the
+  checkout's mode, so user-level and project-level hooks never both run.
+  Measured costs (Claude Code 2.1.319, Codex 0.164/0.167): the init skill is
+  listed in every project's skill menu; Codex shows a one-time hook review
+  screen (and again whenever a definition changes, so the user-level
+  definitions are kept byte-stable); plain `codex exec` prints `hook:` lines.
+  Claude Code gets no user-level `PreCompact`, because it reports a completed
+  PreCompact hook to the model in every project. In the `codex exec` sandbox
+  the data folder is read-only, so `remember` queues notes in
+  `.memmem/outbox/` and the hooks' `sync` uploads them.
+- **Shared mode (`setup --shared`, the 0.1.0 default).** The first teammate's
+  `setup` writes `.memmem/config.json`, the hooks in `.claude/settings.json`,
   `.claude/skills/{remember,memmem-init}`, `.agents/skills/memmem-init`, the
   `AGENTS.md` snippet and two `.gitignore` lines, and prints what to commit
   (it does not commit for you). Later teammates only type `memmem setup`
-  (clone, register and check; the handle comes from `gh`).
-  `setup --local` is the option that writes to `.claude/settings.local.json`
-  to avoid committing.
-- **PATH safety net.** The shared hooks call `memmem ...` (PATH), and `setup`
+  (clone, register and check; the handle comes from `gh`). Projects set up
+  with 0.1.0 keep this mode. `setup --hooks-only` reinstalls the project-level
+  hooks, skills and `AGENTS.md` block. The old `setup --local` (hooks in
+  `.claude/settings.local.json`) is now a deprecated alias of user mode.
+- **PATH safety net** (shared mode). The shared hooks call `memmem ...` (PATH), and `setup`
   also writes the same hooks with this machine's absolute path into
   `.claude/settings.local.json`. `doctor` checks for "the hook cannot find
   memmem". Binary distribution makes this problem mostly go away, but the

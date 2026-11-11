@@ -149,20 +149,35 @@ memmem-server start --detach                         # not needed in Docker: the
 Afterwards `memmem-server status`, `logs`, `members` and `init status` follow
 the server, and `model set` and `project add` work while it runs.
 
-**Teammates** (client). The first one, in the project checkout, writes the
-shared files (`.memmem/config.json`, the hooks for Claude Code and Codex, the
-skills, the Codex `AGENTS.md` block, a few `.gitignore` lines) and commits them
-so the rest of the team gets them with the code:
+**Teammates** (client). Each one runs the same command in their checkout of the
+project (it takes the member handle from `gh`):
 
 ```bash
 memmem setup --project acme --memory-repo acme-org/mem-acme \
              --transcripts-repo acme-org/mem-acme-transcripts
 ```
 
-Everyone else runs `memmem setup` in their clone (it takes the member handle
-from `gh`); Codex users also trust the hooks once in `/hooks`. Then, in Claude
-Code, `/memmem-init`; in Codex, `$memmem-init`. From then on every session in
-that folder starts with the team memory and ends by shipping its transcript.
+By default nothing is written into the project's tracked files and nothing is
+committed: the hooks and the `memmem-init` skill are installed once per
+computer at the user level (`~/.claude/settings.json`, `~/.codex/hooks.json`,
+`~/.agents/skills`), and the project only gets a `.memmem/` folder that git
+ignores through `.git/info/exclude`. That works in a repository you share with
+people who do not use mem-mem. Projects without `.memmem/` are left alone: the
+hooks exit at once there, and what remains visible is the `memmem-init` entry
+in the skill menu, Codex's one-time hook review screen, and Codex's own
+`hook:` lines in plain `codex exec` output. `memmem install` refreshes the
+user-level pieces, `memmem uninstall --user` removes them.
+
+Codex users approve the memmem hooks once per computer on Codex's review
+screen (again only if the hook definitions change). Then, in Claude Code,
+`/memmem-init`; in Codex, `$memmem-init`. From then on every session in that
+folder starts with the team memory and ends by shipping its transcript.
+
+For a repository the team owns, `memmem setup --shared ...` is the 0.1.0
+behaviour: it writes the hooks, skills, an `AGENTS.md` block and a few
+`.gitignore` lines into the project for the first member to commit, and the
+rest of the team runs `memmem setup` in their clones. Details in
+[client/README.md](client/README.md).
 
 ```bash
 memmem status            # ingest, reflection, init progress, your own contribution
