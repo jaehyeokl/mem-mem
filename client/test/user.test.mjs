@@ -438,3 +438,47 @@ test("doctor and status in a user-mode project report the mode and the user-leve
   assert.equal(s.code, 0, s.stderr);
   assert.match(s.stdout, /\nmode: user; user-level hooks: claude-code ok, codex binary missing/);
 });
+
+test("remember under a read-only data folder: outbox, then sync and the next remember upload it once", { skip: process.getuid?.() === 0 && "root ignores file modes" }, () => {
+  const w = userWorld();
+  assert.equal(w.setup().code, 0);
+  const data = path.join(w.env.MEMMEM_HOME, "acme");
+  const inbox = () => lsTree(w.transcriptsBare, w.env).filter((f) => f.startsWith("inbox/alice/"));
+  const outbox = path.join(w.proj, ".memmem", "outbox");
+  fs.chmodSync(data, 0o555);
+  try {
+    const r = run(["remember", "-"], { env: w.env, cwd: w.proj, input: "We deploy on Tuesdays\n" });
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stdout, /^queued .*\.memmem\/outbox\/\d{4}-\d\d-\d\d-we-deploy-on-tuesdays\.md: the data folder is read-only here \(sandbox\); it uploads at the next sync\n$/);
+    const r2 = run(["remember", "We deploy on Tuesdays", "token=ghp_abcdefghijklmnopqrstuvwxyz0123456789"], { env: w.env, cwd: w.proj });
+    assert.equal(r2.code, 0, r2.stderr);
+    assert.match(r2.stderr, /redacted \d+ secret-like/);
+  } finally { fs.chmodSync(data, 0o755); }
+  assert.equal(fs.readdirSync(outbox).length, 2);
+  assert.ok(!fs.readdirSync(outbox).some((n) => fs.readFileSync(path.join(outbox, n), "utf8").includes("ghp_abcdef")), "redacted before it is written");
+  assert.deepEqual(inbox(), []);
+  assert.equal(status(w), "", "the outbox is hidden too");
+
+  // sync (what the hooks run outside the sandbox) uploads them and empties the outbox.
+  const s = run(["sync", "--tool", "claude-code", "--transcript", CLAUDE_FIXTURE, "--session", "s-1", "--cwd", w.proj], { env: w.env, cwd: w.proj });
+  assert.equal(s.code, 0, s.stderr);
+  assert.equal(inbox().length, 2);
+  assert.ok(!fs.existsSync(outbox));
+  // Again: nothing to do, nothing duplicated.
+  run(["sync", "--tool", "claude-code", "--transcript", CLAUDE_FIXTURE, "--session", "s-1", "--cwd", w.proj], { env: w.env, cwd: w.proj });
+  assert.equal(inbox().length, 2);
+
+  // A note already copied into the clone whose outbox file survived (crash after the commit):
+  // the next successful remember uploads only the new note.
+  const clone = path.join(data, "transcripts", "inbox", "alice");
+  const already = fs.readdirSync(clone)[0];
+  fs.mkdirSync(outbox);
+  fs.copyFileSync(path.join(clone, already), path.join(outbox, already));
+  fs.writeFileSync(path.join(outbox, "2026-01-01-queued-earlier.md"), "---\nmember: alice\nproject: acme\ncreated: 2026-01-01T00:00:00.000Z\nsource: manual\n---\n\nqueued earlier\n");
+  const r3 = run(["remember", "Third note"], { env: w.env, cwd: w.proj });
+  assert.equal(r3.code, 0, r3.stderr);
+  const files = inbox();
+  assert.equal(files.length, 4, files.join("\n"));
+  assert.ok(files.includes("inbox/alice/2026-01-01-queued-earlier.md"));
+  assert.ok(!fs.existsSync(outbox));
+});

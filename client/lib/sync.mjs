@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { NORMALIZER_VERSION, normalize, readTranscript, resolveTranscript, sessionIdFromPath, startedAtOf, trajectoryRelPath } from "./normalize.mjs";
+import { flushOutbox } from "./remember.mjs";
 import { redactDeep } from "./secrets.mjs";
 import { commitAndPush, ensureClone, findConfig, git, LAYOUT_VERSION, log, preparePull, projectPaths, repoUrl, safeName, sleepSync, withLock } from "./util.mjs";
 
@@ -93,6 +94,8 @@ export function runSync(args) {
   const L = (m) => log(paths, "sync", m);
   const delay = Number(args.delayMs || 0);
   if (delay > 0) sleepSync(delay);
+  // Notes `memmem remember` queued in .memmem/outbox/ while the data folder was read-only.
+  try { flushOutbox(found.dir, paths, found.config); } catch (e) { L(`error: outbox: ${e.message}`); }
 
   const file = resolveTranscript(args.transcript, { tool, sessionId: args.session });
   if (!file) { L(`skip: transcript not found (path=${args.transcript || "-"} session=${args.session || "-"})`); return 1; }
