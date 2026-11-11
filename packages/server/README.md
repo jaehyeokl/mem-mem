@@ -52,7 +52,7 @@ The image `ghcr.io/jaehyeokl/mem-mem-server:<version>` (also `:latest`;
 # compose.yaml
 services:
   memmem-server:
-    image: ghcr.io/jaehyeokl/mem-mem-server:0.1.0   # or :latest
+    image: ghcr.io/jaehyeokl/mem-mem-server:0.1.1   # or :latest
     container_name: mem-mem
     restart: unless-stopped
     environment:
@@ -119,7 +119,7 @@ The same steps by hand, with a tarball downloaded from the Release:
 
 ```bash
 npm i -g --allow-scripts=@letta-ai/letta-code,node-pty @letta-ai/letta-code@0.34.41
-npm i -g ./memmem-server-0.1.0.tgz
+npm i -g ./memmem-server-0.1.1.tgz
 ```
 
 The tarball bundles its runtime dependencies (the Letta Agent SDK and `ws`).
