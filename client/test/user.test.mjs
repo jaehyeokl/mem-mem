@@ -633,3 +633,20 @@ test("remember from a linked worktree under a read-only data folder: the worktre
   assert.ok(!fs.existsSync(path.join(w.proj, ".memmem")));
   assert.equal(status(w), "");
 });
+
+
+test("uninstall through a symlinked project path does not count the main checkout as its own linked worktree", () => {
+  const w = worktreeWorld();
+  const link = path.join(w.root, "alias");
+  fs.symlinkSync(w.proj, link);
+  fs.mkdirSync(path.join(w.proj, ".memmem", "outbox"));
+  fs.writeFileSync(path.join(w.proj, ".memmem", "outbox", "2026-11-11-x.md"), "note\n");
+  const u = run(["uninstall", "--dir", link], { env: w.env, cwd: w.root });
+  assert.equal(u.code, 0, u.stderr);
+  assert.match(u.stdout, new RegExp(`queued note\\(s\\) are not uploaded yet \\(1 in ${reEscape(path.join(link, ".memmem", "outbox"))}\\); `), "listed once, not again under its real path");
+  fs.rmSync(path.join(w.proj, ".memmem", "outbox"), { recursive: true });
+  const u2 = run(["uninstall", "--dir", link], { env: w.env, cwd: w.root });
+  assert.equal(u2.code, 0, u2.stderr);
+  assert.ok(!fs.existsSync(path.join(w.proj, ".memmem")));
+  assert.equal(status(w), "");
+});

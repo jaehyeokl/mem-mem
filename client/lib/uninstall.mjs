@@ -34,8 +34,11 @@ function outboxNotes(dir) {
 function linkedWorktrees(dir) {
   const r = git(["worktree", "list", "--porcelain"], { cwd: dir });
   if (!r.ok) return [];
+  // git prints real paths; `dir` may reach the main checkout through a symlink.
+  const realOf = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+  const self = realOf(dir);
   const all = r.stdout.split("\n").filter((l) => l.startsWith("worktree ")).map((l) => path.resolve(l.slice(9)));
-  return all.filter((w) => w !== path.resolve(dir));
+  return all.filter((w) => realOf(w) !== self);
 }
 
 /** User mode, project side: .memmem/ (unless the outbox holds notes) and our info/exclude line. */
